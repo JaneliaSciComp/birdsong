@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/newproject.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+<link href="https://unpkg.com/gijgo@1.9.13/css/gijgo.min.css" rel="stylesheet" type="text/css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+<script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
+<script>
+function register_clutch() {
+  if ($('#start').val() == "") {
+    alert("A clutch start date is required");
+    return false;
+  }
+  url = "/registerclutch"
+  token = $.cookie('birdsong-token')
+  var array = {}
+  array = {"start_date": $('#start').val(),
+           "nest_id": $('#nest').val(),
+           "notes": $('#notes').val(),
+          }
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify(array),
+    contentType:'application/json',
+    success: function(result) {
+      alert("A new clutch has been registered")
+    },
+    error: function(xhr, ajaxOptions, thrownError, dataType) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else {
+        try {
+          data = JSON.parse(xhr.responseText);
+          alert(xhr.status + ': ' + thrownError + "\n" + data.rest.error);
+        }
+        catch {
+          alert(xhr.status + ': ' + thrownError);
+        }
+      }
+    }
+  });
+}
+$('select').selectpicker();
+</script>
+{% endblock %}
+{% block content %}
+  {{navbar|safe}}
+  <br>
+  <h2>Register a new clutch</h2>
+  <h4>Required parameters:</h4>
+  <div style='float: left;margin:10px 0 15px 0;'>
+  <div style='float: left'>Start date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
+  </div>
+  <script>
+    $('#start').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{start}}', minDate: '2015-01-01' });
+  </script>
+  <div style='clear:both'></div>
+  <div class="grid-container" width="500">
+    <div class="grid-item">Nest:</div>
+    <div class="grid-item">{{nestselect | safe}}</div>
+  </div>
+  <br>
+  <h4>Optional parameters:</h4>
+  <div class="grid-container" width="500">
+    <div class="grid-item">Notes:</div>
+    <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+  </div>
+  <br>
+  <button type="submit" id="sb" class="btn btn-primary" onclick="register_clutch();" href="#">Register clutch</button>
+{% endblock %}

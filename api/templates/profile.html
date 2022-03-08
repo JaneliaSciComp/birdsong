@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+  {{navbar|safe}}
+  <h2>{{user}}</h2>
+  <table id='userprops' class='property'>
+  <tbody>
+  {% for row in uprops %}
+    <tr><td class="align-top">{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  <div width="100%">
+  <br>
+  <button onclick="$('#token').toggle();">Show/hide Auth token</button>
+  <div id="token" style="display: none;">
+    Auth Token:<br>
+    <div class="shadow w-100 p-3 mb-5 bg-white rounded" style="word-wrap: break-word;color:#000;">{{token}}</div>
+    </div>
+  </div>
+  <br><button type="button" class="btn btn-outline-danger" onclick='document.location.href="https://www.google.com/accounts/Logout?continue=https://appengine.google.com/_ah/logout?continue=https://127.0.0.1:5000/logout";'>Logout</button>
+{% endblock %}

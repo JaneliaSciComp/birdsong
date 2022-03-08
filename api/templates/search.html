@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script>
+function run_search() {
+  array = {"key_type": $('#key_type').val(),
+           "key_text": $('#key_text').val()};
+  token = $.cookie('assignment-manager-token')
+  $.ajax({
+      url: '/run_search',
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      data: JSON.stringify(array),
+      contentType:'application/json',
+      success: function(result) {
+        $("#search_content").html(result['data']);
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+</script>
+{% endblock %}
+
+{% block content %}
+  {{navbar|safe}}
+  <h2>Search</h2>
+  <br>
+  <div>
+  Search for
+  <select id="key_type">
+    <option value="body" SELECTED>Body ID</option>
+    <option value="xyz">X_Y_Z coordinates</option>
+    <option value="task_id">Task ID</option>
+  </select>
+  <input id='key_text'>
+  </div>
+  <br>
+  <button id="sb" type="button" class="btn btn-success btn-sm" onclick='run_search();'>Search</button>
+  <div id='search_content'></div>
+{% endblock %}

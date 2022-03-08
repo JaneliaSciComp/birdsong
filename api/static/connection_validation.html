@@ -1,0 +1,27 @@
+<span style='color:black'>
+Expected input is JSON with a "points" list containing one or more tasks.
+Valid input for this protocol will create a project (if needed) and an assignment containing all tasks in the "points" list:
+<pre>
+{
+  <span style='color:#ccc'>"note": "Project note",
+  "group": "Project group",
+  "source": "Neu3",
+  "user": "neacee",</span>
+  "body_id": 1043825714,
+  "points": [
+    [
+      25104,
+      23463,
+      19106
+    ],
+    [
+      29994,
+      21314,
+      22659
+    ]
+  ]
+}
+</pre>
+Elements in <span style='color:#ccc'>gray</span> are optional, all others are required. Any additional data not shown above is ignored.
+If a user is specified, the assignment is assigned to them; otherwise, it's assigned to the caller.
+</span>

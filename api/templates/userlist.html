@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+<script>
+function change_usertype(ut) {
+  $("div.hhmidesc").hide();
+  $("#" + ut).show();
+}
+
+function select_organization(sel) {
+  selected = sel.value
+  $("#organization > option").each(function() {
+    if ($('#organization').val().includes(this.value)) {
+      $("."+this.value).show();
+    }
+    else {
+      $("."+this.value).hide();
+    }
+  });
+}
+
+function add_user() {
+  if ($("input[name='hhmi_radio']:checked").val() == 'hhmi') {
+    if (!$('#user_name').val() || ! $('#janelia_id').val()) {
+      alert("You must enter a user name and Janelia ID");
+      return;
+    }
+  }
+  else {
+    if (!$('#user_name').val() || ! $('#first_name').val() || ! $('#last_name').val() || ! $('#email').val()) {
+      alert("You must enter a user name, first/last name, and preferred email");
+      return;
+    }
+  }
+  url = '/adduser';
+  token = $.cookie('birdsong-token');
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify({"name": $('#user_name').val(),
+                          "usertype": $("input[name='hhmi_radio']:checked").val(),
+                          "janelia_id": $('#janelia_id').val(),
+                          "first": $('#first_name').val(),
+                          "last": $('#last_name').val(),
+                          "email": $('#email').val(),
+                         }),
+    contentType:'application/json',
+    success: function(result) {
+      alert("This user has been added");
+      window.location.href = '/userlist';
+    },
+    error: function (xhr, ajaxOptions, thrownError) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else if (xhr.status == 404) {
+        alert("Janelia ID " + $('#janelia_id').val() + " is not in Workday");
+      }
+      else if (xhr.status == 400) {
+        json = JSON.parse(xhr.responseText);
+        alert(json['rest']['error']);
+      }
+      else {
+        alert(xhr.status + ': ' + thrownError);
+      }
+    }
+  });
+}
+$('select').selectpicker();
+</script>
+{% endblock %}
+{% block onload %}
+onload="tableInitialize();"
+{% endblock %}
+
+{% block content %}
+  {{navbar|safe}}
+  <h2>Users</h2>
+  Select organization:
+  <select id="organization" class="selectpicker" multiple=1 data-live-search="true" onchange='select_organization(this);'>
+    {% for org in organizations %}
+        <option value="{{org}}" SELECTED>{{organizations[org]}}</option>"
+    {% endfor %}
+  </select>
+  <table id="users" class="tablesorter standard">
+  <thead>
+    <tr><th>User</th><th>Name</th><th>Janelia ID</th><th>Email</th><th>Organization</th><th>Permissions</th></tr>
+  </thead>
+  <tbody>
+  {{userrows|safe}}
+  </tbody>
+  </table>
+  {{adduser|safe}}
+{% endblock %}

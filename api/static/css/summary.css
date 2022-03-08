@@ -1,0 +1,18 @@
+.a-new { background-color: #660099; }
+.btn-new { background-color: #660099; }
+.btn-new:hover { background-color: #550088; }
+.a-queued { background-color: #c08800; }
+.btn-queued { background-color: #c08800; }
+.btn-queued:hover { background-color: #b07700; }
+.listcontainer {display: grid;
+                grid-template-rows: 40px 25px 40px 25px 40px 25px 40px 25px 40px;
+                grid-template-columns: 165px 20px 165px 600px;
+}
+.status {width: 150px;
+         text-align: center;
+}
+.instructions {grid-row-start: 1
+               grid-row-end: 9;
+               grid-column-start: 4;
+               grid-column-end: 4;
+}

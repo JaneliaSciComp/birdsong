@@ -1,0 +1,43 @@
+<span style='color:black'>
+Expected input is JSON with a "task list" list containing one or more tasks.
+Valid input for this protocol will create a project (if needed) containing all tasks in the "task list" list:
+<pre>
+{
+  <span style='color:#ccc'>"note": "Project note",
+  "group": "Project group",
+  "source": "Neu3",</span>
+  "neuroglancer_grayscale": "precomputed://gs://neuroglancer-janelia-flyem-hemibrain/emdata/clahe_yz/jpeg",
+  "neuroglancer_segmentation": "precomputed://gs://neuroglancer-janelia-flyem-hemibrain/v1.0/segmentation",
+  "task list": [
+    {
+      "task type":"focused merge",
+      "supervoxel ID 1":421250151,
+      "supervoxel point 1":[7050,21992,6561],
+      "body point 1":[7050,21992,6561],
+      "supervoxel ID 2":451611277,
+      "supervoxel point 2":[7050,21992,6562],
+      "body point 2":[7050,21992,6562]
+    },
+    {
+      "task type":"focused merge",
+      "supervoxel ID 1":358847363,
+      "supervoxel point 1":[6238,20514,6596],
+      "body point 1":[6238,20514,6596],
+      "supervoxel ID 2":481272347,
+      "supervoxel point 2":[6238,20513,6596],
+      "body point 2":[6238,20513,6596]
+    },
+    {
+      "task type":"focused merge",
+      "supervoxel ID 1":263730064,
+      "supervoxel point 1":[10820,20396,4064],
+      "body point 1":[10820,20396,4064],
+      "supervoxel ID 2":295106005,
+      "supervoxel point 2":[10800,20426,4074],
+      "body point 2":[10800,20426,4074]
+    }
+  ]
+}
+</pre>
+Elements in <span style='color:#ccc'>gray</span> are optional, all others are required. Any additional data not shown above is ignored.
+</span>

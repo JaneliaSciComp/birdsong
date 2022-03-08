@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/newproject.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+<link href="https://unpkg.com/gijgo@1.9.13/css/gijgo.min.css" rel="stylesheet" type="text/css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+<script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
+<script>
+function change_nesttype(ut) {
+  $("div.breeding").hide();
+  $("div.fostering").hide();
+  $("div." + ut).show();
+}
+
+function register_nest() {
+  if ($('#start').val() == "") {
+    alert("A nest start date is required");
+    return false;
+  }
+  if ($('#color1').val() == "" || $('#color2').val() == "") {
+    alert("Band colors are required");
+    return false;
+  }
+  url = "/registernest"
+  token = $.cookie('birdsong-token')
+  var array = {}
+  array = {"start_date": $('#start').val(),
+           "color1": $('#color1').val(),
+           "color2": $('#color2').val(),
+           "notes": $('#notes').val(),
+          }
+  if ($("input[name='nest_radio']:checked").val() == 'breeding') {
+    if (!$('#sire').val() || !$('#damsel').val()) {
+      alert("A sire and damsel are required");
+      return;
+    }
+    array["sire_id"] = $('#sire').val();
+    array["damsel_id"] = $('#damsel').val()
+  }
+  else {
+    if (!$('#female1').val()) {
+      alert("You need to have at least one female for a fostering nest");
+      return;
+    }
+    if ($('#female3').val() && !$('#female2').val()) {
+      $('#female3').val() = $('#female2').val();
+      $('#female2').val() = "";
+    }
+    if ($('#female2').val()) {
+      if ($('#female2').val() == $('#female1').val()) {
+        alert("Bird is duplicated");
+        return;
+      }
+      if ($('#female3').val() && (($('#female3').val() == $('#female2').val()) || ($('#female3').val() == $('#female1').val()))) {
+        alert("Bird is duplicated");
+        return;
+      }
+    }
+    array["female1_id"] = $('#female1').val();
+    array["female2_id"] = $('#female2').val();
+    array["female3_id"] = $('#female3').val();
+  }
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify(array),
+    contentType:'application/json',
+    success: function(result) {
+      alert("A new nest has been registered")
+    },
+    error: function(xhr, ajaxOptions, thrownError, dataType) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else {
+        try {
+          data = JSON.parse(xhr.responseText);
+          alert(xhr.status + ': ' + thrownError + "\n" + data.rest.error);
+        }
+        catch {
+          alert(xhr.status + ': ' + thrownError);
+        }
+      }
+    }
+  });
+}
+$('select').selectpicker();
+</script>
+{% endblock %}
+{% block content %}
+  {{navbar|safe}}
+  <br>
+  <h2>Register a new nest</h2>
+  <h4>Required parameters:</h4>
+  <div style='float: left;margin:10px 0 15px 0;'>
+  <div style='float: left'>Start date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
+  </div>
+  <script>
+    $('#start').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{start}}', minDate: '2015-01-01' });
+  </script>
+  <div style='clear:both'></div>
+  <div class="grid-container" width="500">
+    <div class="grid-item">Upper band color:</div>
+    <div class="grid-item">{{color1select | safe}}</div>
+    <div class="grid-item">Lower band color:</div>
+    <div class="grid-item">{{color2select | safe}}</div>
+    <div class="grid-item">Nest type:</div>
+    <div class="grid-item id="myRadioGroup">
+      Breeding <input type="radio"  style="transform:scale(1.25)" name="nest_radio" checked="checked" value="breeding" onclick="change_nesttype('breeding');" />
+      &nbsp;&nbsp;&nbsp;
+      Fostering <input type="radio" style="transform:scale(1.25)" name="nest_radio" value="fostering" onclick="change_nesttype('fostering');"/>
+    </div>
+    <div class="grid-item breeding">Sire:</div>
+    <div class="grid-item breeding">{{sire1select | safe}}</div>
+    <div class="grid-item breeding">Damsel:</div>
+    <div class="grid-item breeding">{{damsel1select | safe}}</div>
+    <div class="grid-item fostering" style="display: none">Female 1:</div>
+    <div class="grid-item fostering" style="display: none">{{female1select | safe}}</div>
+  </div>
+  <br>
+  <h4>Optional parameters:</h4>
+  <div class="grid-container" width="500">
+    <div class="grid-item fostering" style="display: none">Female 2:</div>
+    <div class="grid-item fostering" style="display: none">{{female2select | safe}}</div>
+    <div class="grid-item fostering" style="display: none">Female 3:</div>
+    <div class="grid-item fostering" style="display: none">{{female3select | safe}}</div>
+    <div class="grid-item">Notes:</div>
+    <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+  </div>
+  <br>
+  <button type="submit" id="sb" class="btn btn-primary" onclick="register_nest();" href="#">Register nest</button>
+{% endblock %}

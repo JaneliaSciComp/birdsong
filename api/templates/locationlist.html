@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+<script>
+function add_location() {
+  if (!$('#display_name').val()) {
+    alert("You must enter a location name");
+    return;
+  }
+  url = '/addlocation';
+  token = $.cookie('birdsong-token');
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify({"display_name": $('#display_name').val(),
+                          "definition": $('#definition').val(),
+                         }),
+    contentType:'application/json',
+    success: function(result) {
+      alert("This location has been added");
+      window.location.href = '/locationlist';
+    },
+    error: function (xhr, ajaxOptions, thrownError) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else if (xhr.status == 400) {
+        json = JSON.parse(xhr.responseText);
+        alert(json['rest']['error']);
+      }
+      else {
+        alert(xhr.status + ': ' + thrownError);
+      }
+    }
+  });
+}
+</script>
+{% endblock %}
+{% block onload %}
+onload="tableInitialize();"
+{% endblock %}
+
+{% block content %}
+  {{navbar|safe}}
+  <h2>Locations</h2>
+  <div class="flexrow">
+    <div class="flexcol">
+      {{locations|safe}}
+      <table id="locations" class="tablesorter standard">
+      <thead>
+        <tr><th>Location</th><th>Description</th><th>Number of birds</th></tr>
+      </thead>
+      <tbody>
+      {{locationrows|safe}}
+      </tbody>
+      </table>
+    </div>
+    <div class="flexcol">
+      {{addlocation|safe}}
+    </div>
+  </div>
+{% endblock %}

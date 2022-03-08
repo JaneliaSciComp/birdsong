@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script>
+function changebox(cb) {
+   permission = cb.id;
+  $('#user').val();
+  if (cb.checked == true) {
+    atype = 'POST';
+    operation = 'granted';
+  }
+  else {
+    atype = 'DELETE';
+    operation = 'removed';
+  }
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: '/user_permissions',
+      headers: {"Authorization": 'Bearer ' + token },
+      type: atype,
+      dataType: 'json',
+      data: JSON.stringify({"name": $('#user').val(),
+             "permissions": [permission]}),
+      contentType:'application/json',
+      success: function(result) {
+        alert(permission + " permission is " + operation);
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError);
+        }
+      }
+  });
+}
+</script>
+{% endblock %}
+
+{% block content %}
+  {{navbar|safe}}
+  <h2>{{user}}</h2>
+  <table id='userprops' class='property'>
+  <tbody>
+  {% for row in uprops %}
+    <tr><td class="align-top">{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
+  {% endfor %}
+  </tbody>
+  </table>
+  <form>
+  <div class="form-control-lg">
+  {{ptable|safe}}
+  </div>
+  <input type=hidden id="user" value={{user}}>
+  </form>
+{% endblock %}

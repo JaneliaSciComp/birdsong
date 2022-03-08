@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/newproject.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+<link href="https://unpkg.com/gijgo@1.9.13/css/gijgo.min.css" rel="stylesheet" type="text/css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+<script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
+<script>
+function register_bird() {
+  if ($('#start').val() == "" || $('#stop').val() == "") {
+    alert("Hatch dates are required");
+    return false;
+  }
+  if ($('#start').val() > $('#stop').val()) {
+    alert("Hatch early date must be <= hatch late date");
+    return False;
+  }
+  if ($('#nest').val() == "") {
+    alert("A nest is required");
+    return false;
+  }
+  if ($('#number1').val() == "" || $('#number2').val() == "") {
+    alert("Band numbers are required");
+    return false;
+  }
+  url = "/registerbird"
+  token = $.cookie('birdsong-token')
+  var array = {}
+  array = {"start_date": $('#start').val(),
+           "stop_date": $('#stop').val(),
+           "nest_id": $('#nest').val(),
+           "sex": $('#sex').val(),
+           "claim": $('#claim').is(':checked') ? 1 : 0,
+           "number1": $('#number1').val(),
+           "number2": $('#number2').val(),
+           "notes": $('#notes').val(),
+          }
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify(array),
+    contentType:'application/json',
+    success: function(result) {
+      alert("A new bird has been registered")
+    },
+    error: function(xhr, ajaxOptions, thrownError, dataType) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else {
+        try {
+          data = JSON.parse(xhr.responseText);
+          alert(xhr.status + ': ' + thrownError + "\n" + data.rest.error);
+        }
+        catch {
+          alert(xhr.status + ': ' + thrownError);
+        }
+      }
+    }
+  });
+}
+$('select').selectpicker();
+</script>
+{% endblock %}
+{% block content %}
+  {{navbar|safe}}
+  <h2>Register a new bird</h2>
+  <br>
+  <h4>Required parameters:</h4>
+  <div style='float: left;margin:10px 0 15px 0;'>
+  <div style='float: left'>Early hatch date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
+  <div style='float: left;margin-left: 10px;'>Late hatch date:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
+  </div>
+  <script>
+    $('#start').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{start}}', minDate: '2019-09-01' });
+    $('#stop').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{stop}}' });
+  </script>
+  <div style='clear:both'></div>
+  <div class="grid-container" width="500">
+    <div class="grid-item">Nest:</div>
+    <div class="grid-item">{{nestselect | safe}}</div>
+    <div class="grid-item">Upper band:</div>
+    <div class="grid-item"><input id="number1" size=5></div>
+    <div class="grid-item">Lower band:</div>
+    <div class="grid-item"><input id="number2" size=5></div>
+    <div class="grid-item">Sex:</div>
+    <div class="grid-item"><select id="sex"><option value="M">M</option><option value="F">F</option></select></div>
+    <div class="grid-item">Claim bird:</div>
+    <div class="grid-item">&nbsp;&nbsp;&nbsp;&nbsp;<input class="form-check-input" type="checkbox" style="transform:scale(1.25)" id="claim" value="" aria-label="ClaimBird" /></div>
+  </div>
+  <br>
+  <h4>Optional parameters:</h4>
+  <div class="grid-container" width="500">
+    <div class="grid-item">Notes:</div>
+    <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+  </div>
+  <br>
+  <button type="submit" id="sb" class="btn btn-primary" onclick="register_bird();" href="#">Register bird</button>
+{% endblock %}
