@@ -31,6 +31,34 @@ function select_location(bird, sel) {
   });
 }
 
+function select_nest(bird, sel) {
+  if (!sel.value) {
+    return;
+  }
+  selected = sel.value
+  url = '/bird/nest/' + bird + '/' + selected
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      contentType:'application/json',
+      success: function(result) {
+        alert("This bird's nest has been changed");
+        window.location.href = window.location.pathname 
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+
 function update_bird(bird, operation) {
   url = '/bird/' + operation + '/' + bird
   token = $.cookie('birdsong-token')
@@ -73,7 +101,7 @@ onload="tableInitialize();"
 
 {% block content %}
   {{navbar|safe}}
-  <h2>{{ bird }}</h2>
+  <h2>Bird {{ bird }}</h2>
   <table id='birdprops' class="property">
   <tbody>
   {% for row in bprops %}
@@ -82,4 +110,5 @@ onload="tableInitialize();"
   </tbody>
   </table>
   {{controls|safe}}
+  {{events|safe}}
 {% endblock %}

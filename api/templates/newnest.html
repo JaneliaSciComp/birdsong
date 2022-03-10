@@ -30,6 +30,7 @@ function register_nest() {
   array = {"start_date": $('#start').val(),
            "color1": $('#color1').val(),
            "color2": $('#color2').val(),
+           "location": $('#location').val(),
            "notes": $('#notes').val(),
           }
   if ($("input[name='nest_radio']:checked").val() == 'breeding') {
@@ -109,6 +110,8 @@ $('select').selectpicker();
     <div class="grid-item">{{color1select | safe}}</div>
     <div class="grid-item">Lower band color:</div>
     <div class="grid-item">{{color2select | safe}}</div>
+    <div class="grid-item">Location:</div>
+    <div class="grid-item">{{locationselect | safe}}</div>
     <div class="grid-item">Nest type:</div>
     <div class="grid-item id="myRadioGroup">
       Breeding <input type="radio"  style="transform:scale(1.25)" name="nest_radio" checked="checked" value="breeding" onclick="change_nesttype('breeding');" />

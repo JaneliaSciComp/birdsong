@@ -30,6 +30,31 @@ function select_location(nest, sel) {
       }
   });
 }
+
+function select_nest(nest, sel) {
+  selected = sel.value
+  url = '/nest/nest/' + nest + '/' + selected
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      contentType:'application/json',
+      success: function(result) {
+        alert("The nest has been changed for birds in this nest");
+        window.location.href = window.location.pathname
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
 </script>
 {% endblock %}
 {% block onload %}
@@ -38,7 +63,7 @@ onload="tableInitialize();"
 
 {% block content %}
   {{navbar|safe}}
-  <h2>{{ nest }}</h2>
+  <h2>Nest {{ nest }}</h2>
   <table id='nestprops' class="property">
   <tbody>
   {% for row in nprops %}
@@ -48,5 +73,7 @@ onload="tableInitialize();"
   </table>
   <br>
   {{birds|safe}}
+  <br>
+  {{clutches|safe}}
   {{controls|safe}}
 {% endblock %}
