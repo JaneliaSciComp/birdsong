@@ -22,9 +22,7 @@ import pymysql.err
 import requests
 
 import birdsong_utilities
-from birdsong_utilities import (InvalidUsage, call_responder, check_permission,
-                                generate_sql, get_banding, get_banding_and_location,
-                                get_user_by_name, random_string, sql_error, validate_user)
+from birdsong_utilities import *
 
 # SQL statements
 READ = {
@@ -35,9 +33,9 @@ READ = {
                  + "object_id=%s",
     'BSUMMARY': "SELECT * FROM bird_vw ORDER BY name DESC",
     'CSUMMARY': "SELECT * FROM clutch_vw ORDER BY name DESC",
-    'LSUMMARY': "SELECT c.name,display_name,definition,COUNT(b.id) AS cnt FROM cv_term c "
+    'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
                 + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
-                + "WHERE cv_id=getCvId('location','') group by 1,2,3",
+                + "WHERE cv_id=getCvId('location','') group by 1,2,3,4",
     'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
 }
 WRITE = {
@@ -56,22 +54,22 @@ WRITE = {
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, obj):   # pylint: disable=E0202, W0221
+    def default(self, obj1):   # pylint: disable=E0202, W0221, W0237
         try:
-            if isinstance(obj, datetime):
-                return obj.strftime("%a, %-d %b %Y %H:%M:%S")
-            if isinstance(obj, timedelta):
-                seconds = obj.total_seconds()
+            if isinstance(obj1, datetime):
+                return obj1.strftime("%a, %-d %b %Y %H:%M:%S")
+            if isinstance(obj1, timedelta):
+                seconds = obj1.total_seconds()
                 hours = seconds // 3600
                 minutes = (seconds % 3600) // 60
                 seconds = seconds % 60
                 return f"{hours:02d}:{minutes:02d}:{seconds:.02f}"
-            iterable = iter(obj)
+            iterable = iter(obj1)
         except TypeError:
             pass
         else:
             return list(iterable)
-        return JSONEncoder.default(self, obj)
+        return JSONEncoder.default(self, obj1)
 
 __version__ = "0.0.1"
 app = Flask(__name__, template_folder="templates")
@@ -408,10 +406,12 @@ def get_bird_events(bird):
     return rows
 
 
-def get_bird_properties(bird):
+def get_bird_properties(bird, user, permissions):
     ''' Get a bird's properties
         Keyword arguments:
           bird: bird record
+          user: user
+          permissions: user permissions
         Returns: HTML
     '''
     bprops = []
@@ -421,7 +421,11 @@ def get_bird_properties(bird):
     bprops.append(["Location:", bird['location']])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
-    bprops.append(["Sex:", bird["sex"]])
+    birdsex = bird["sex"]
+    if (not birdsex) and bird["alive"] and \
+       set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
+        birdsex = generate_sex_pulldown(bird["id"])
+    bprops.append(["Sex:", birdsex])
     bprops.append(["Sire:", '<a href="/bird/%s">%s</a>' % tuple([bird["sire"]]*2)])
     bprops.append(["Damsel:", '<a href="/bird/%s">%s</a>' % tuple([bird["damsel"]]*2)])
     early = str(bird["hatch_early"]).split(' ', maxsplit=1)[0]
@@ -433,7 +437,11 @@ def get_bird_properties(bird):
     if not bird["alive"]:
         bprops.append(["Death date:", bird["death_date"]])
     bprops.append(["Alive:", alive])
-    bprops.append(["Notes:", bird["notes"]])
+    birdnotes = bird["notes"]
+    if (not birdnotes) and bird["alive"] and \
+       set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
+        birdnotes = generate_notes_field(bird["id"])
+    bprops.append(["Notes:", birdnotes])
     try:
         g.c.execute("SELECT type_display,value FROM bird_property_vw WHERE name=%s"
                     "ORDER BY 1", (bird["name"],))
@@ -448,7 +456,7 @@ def get_bird_properties(bird):
     rows = get_bird_events(bird["name"])
     events = ""
     if rows:
-        header = ['Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
+        header = ['Date', 'Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
         events = '''
         <h3>Events</h3>
         <table id="events" class="tablesorter standard">
@@ -460,8 +468,8 @@ def get_bird_properties(bird):
                    + '<td style="text-align: center">%s</td></tr>'
         for row in rows:
             terminal = apply_color("YES", "red", row["terminal"], "lime", "NO")
-            outcol = [row["status"], row["nest"], row["location"], row["user"],
-                      row["notes"], terminal]
+            outcol = [row["event_date"], row["status"], row["nest"], row["location"],
+                      row["user"], row["notes"], terminal]
             events += template % tuple(outcol)
         events += "</tbody></table>"
     return bprops, events
@@ -489,31 +497,19 @@ def get_record(id_or_name, what="clutch"):
     return result
 
 
-def get_clutch_properties(clutch):
-    ''' Get a clutch's properties
-        Keyword arguments:
-          clutch" cliutch record
-    '''
-    cprops = []
-    nest = '<a href="/nest/%s">%s</a>' % tuple([clutch['nest']]*2)
-    cprops.append(["Name:", clutch["name"]])
-    cprops.append(["Nest:", nest])
-    cprops.append(["End date:", clutch["clutch_start"]])
-    cprops.append(["End date:", clutch["clutch_end"]])
-    cprops.append(["Notes:", clutch["notes"]])
-    return cprops
-
-
-def get_birds_in_nest(nest, dnd):
+def get_birds_in_clutch_or_nest(rec, dnd, ttype):
     ''' Get the birds in a nest
         Keyword arguments:
-          nest: nest record
+          rec: clutch or nest record
           dnd: birds to not display
+          ttype: table type
         Returns:
           Birds in nest
     '''
+    sql = "SELECT * FROM bird_vw WHERE " + ttype + "=%s ORDER BY 1"
     try:
-        g.c.execute("SELECT * FROM bird_vw WHERE nest=%s ORDER BY 1", (nest["name"]))
+        print(sql % (rec["name"]))
+        g.c.execute(sql, (rec["name"],))
         irows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -525,8 +521,9 @@ def get_birds_in_nest(nest, dnd):
     if rows:
         header = ['Name', 'Band', 'Location', 'Sex', 'Notes',
                   'Current age', 'Alive']
-        birds = '''
-        <h3>Additional birds</h3>
+        birds = "<h3>Additional birds in nest</h3>" if ttype == "nest" \
+                else "<h3>Birds in clutch</h3>"
+        birds += '''
         <table id="birds" class="tablesorter standard">
         <thead>
         <tr><th>
@@ -544,8 +541,36 @@ def get_birds_in_nest(nest, dnd):
             birds += template % tuple(outcol)
         birds += "</tbody></table>"
     else:
-        birds = "There are no additional birds in this nest."
+        birds = "There are no additional birds in this %s." % (ttype)
     return birds
+
+
+def get_clutch_properties(clutch):
+    ''' Get a clutch's properties
+        Keyword arguments:
+          clutch: cliutch record
+          birds: birds in clutch
+    '''
+    cprops = []
+    nest = '<a href="/nest/%s">%s</a>' % tuple([clutch['nest']]*2)
+    cprops.append(["Name:", clutch["name"]])
+    cprops.append(["Nest:", nest])
+    cprops.append(["Clutch early:", strip_time(clutch["clutch_early"])])
+    cprops.append(["Clutch late:", strip_time(clutch["clutch_late"])])
+    cprops.append(["Notes:", clutch["notes"]])
+    # Bird list
+    birds = get_birds_in_clutch_or_nest(clutch, [], "clutch")
+    return cprops, birds
+
+
+def strip_time(ddt):
+    ''' Return the date portion of a datetime
+        Keyword arguments:
+          ddt: datetime
+        Returns:
+          String date
+    '''
+    return ddt.strftime("%Y-%m-%d")
 
 
 def get_nest_properties(nest):
@@ -582,7 +607,7 @@ def get_nest_properties(nest):
     if uses:
         nprops.append(["Utilization:", ", ".join(uses)])
     # Bird list
-    birds = get_birds_in_nest(nest, dnd)
+    birds = get_birds_in_clutch_or_nest(nest, dnd, "nest")
     # Clutch list
     try:
         g.c.execute("SELECT * FROM clutch_vw WHERE nest=%s ORDER BY 1", (nest["name"]))
@@ -590,7 +615,7 @@ def get_nest_properties(nest):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     if rows:
-        header = ['Name', 'Notes', 'Clutch start']
+        header = ['Name', 'Notes', 'Clutch early', "Clutch late"]
         clutches = '''
         <h3>Clutches</h3>
         <table id="clutches" class="tablesorter standard">
@@ -601,7 +626,8 @@ def get_nest_properties(nest):
         template = '<tr>' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         for row in rows:
             nname = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
-            outcol = [nname, row['notes'], row['clutch_start']]
+            outcol = [nname, row['notes'], strip_time(row['clutch_start']),
+                      strip_time(row["clutch_end"])]
             clutches += template % tuple(outcol)
         clutches += "</tbody></table>"
     else:
@@ -748,7 +774,8 @@ def generate_bird_pulldown(sex, sid):
             rows.append(row)
     if not rows:
         return '<span style="color:red">No birds available</span>'
-    controls = '<select id="%s"><option value="">Select a bird...</option>' % (sid)
+    controls = '<select id="%s" class="form-control col-sm-8"><option value="">' % (sid)\
+               + 'Select a bird...</option>'
     for row in rows:
         controls += '<option value="%s">%s</option>' \
                     % (row["id"], row["name"])
@@ -771,7 +798,8 @@ def generate_color_pulldown(sid):
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    controls = '<select id="%s"><option value="">Select a color...</option>' % (sid)
+    controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+               + 'Select a color...</option>'
     for row in rows:
         controls += '<option value="%s">%s</option>' \
                     % (row["cv_term"], row["cv_term"])
@@ -796,9 +824,9 @@ def generate_location_pulldown(this_id, item_type=None, current=None):
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     if this_id:
-        controls = "Move %s to " % ("birds" if item_type != "bird" else "bird")
-    controls += '<select id="location" onchange="select_location(' + str(this_id) + ',this);">' \
-                + '<option value="">Select a new location...</option>'
+        controls = "Move %s to new location" % ("nest" if item_type != "bird" else "bird")
+    controls += '<select id="location" class="form-control col-sm-8" onchange="select_location(' \
+                + str(this_id) + ',this);"><option value="">Select a new location...</option>'
     for row in rows:
         if row["display_name"] == current:
             continue
@@ -833,13 +861,44 @@ def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
         return '<span style="color:red">No nests available</span>'
     if clutch_or_nest_id:
         controls = '<select id="nest" onchange="select_nest(' + str(clutch_or_nest_id) \
-                   + ',this);"><option value="">Select a new nest...</option>'
+                   + ',this);" class="form-control col-sm-8"><option value="">' \
+                   + 'Select a new nest...</option>'
     else:
-        controls = '<select id="nest"><option value="">Select a nest...</option>'
+        controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
+                   + 'Select a nest...</option>'
     for row in rows:
         controls += '<option value="%s">%s</option>' \
                     % (row['id'], row['name'])
     controls += "</select><br><br>"
+    return controls
+
+
+def generate_notes_field(this_id):
+    ''' Generate notes field
+        Keyword arguments:
+          this_id: bird ID
+        Returns:
+          HTML menu
+    '''
+    controls = '<input type="text" id="notes" onchange="add_notes(' + str(this_id) \
+               + ',this);" class="form-control"/>'
+    return controls
+
+
+def generate_sex_pulldown(this_id):
+    ''' Generate pulldown menu for sex
+        Keyword arguments:
+          this_id: bird ID
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    controls += '<select id="sex" class="form-control col-sm-8" onchange="select_sex(' \
+                + str(this_id) + ',this);"><option value="">Select a sex...</option>'
+    for sex in ["M", "F"]:
+        controls += '<option value="%s">%s</option>' \
+                    % (sex, sex)
+    controls += "</select>"
     return controls
 
 
@@ -942,6 +1001,60 @@ def build_permissions_table(calling_user, user):
     return ptable
 
 
+def register_birds(ipd, result):
+    ''' Register one or more birds
+        Keyword arguments:
+          ipd: request payload
+          result: result dictionary
+        Returns:
+          Values added in result dict
+    '''
+
+    band, nest, loc_id = get_banding_and_location(ipd)
+    # User
+    user_id = None
+    if ipd["claim"]:
+        try:
+            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
+            row = g.c.fetchone()
+            user_id = row["id"]
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+    result['rest']['row_count'] = 0
+    if ("notes" not in ipd) or (not ipd["notes"]):
+        ipd["notes"] = ''
+    result["rest"]["bird_id"] = []
+    result["rest"]["relationship_id"] = []
+    for bird in band:
+        sql = "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,user_id," \
+              + "notes,alive,hatch_early,hatch_late) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s)"
+        try:
+            bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id,
+                    user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"])
+            print(sql % bind)
+            g.c.execute(sql, bind)
+            result["rest"]["row_count"] += g.c.rowcount
+            bird_id = g.c.lastrowid
+            result["rest"]["bird_id"].append(bird_id)
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
+              + "VALUES ('genetic',%s,%s,%s,%s)"
+        try:
+            bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
+            g.c.execute(sql, bind)
+            result["rest"]["row_count"] += g.c.rowcount
+            result["rest"]["relationship_id"].append(g.c.lastrowid)
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+    for bird_id in result["rest"]["bird_id"]:
+        log_bird_event(bird_id, user=result['rest']['user'], nest_id=ipd["nest_id"],
+                       location_id=loc_id)
+        if ipd["claim"]:
+            log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
+                           location_id=loc_id)
+
+
 def which_birds_user():
     ''' Return a pulldown menu to select bird claimant
         Keyword arguments:
@@ -952,7 +1065,7 @@ def which_birds_user():
     return '''
     <div style='float: left;margin-left: 10px;'>
     Birds to show:
-    <select id="which">
+    <select id="which" onclick="get_birds();">
     <option value="mine" selected>Claimed by me</option>
     <option value="eligible">Claimed by me or unclaimed</option>
     <option value="all">All birds</option>
@@ -1013,8 +1126,7 @@ def generate_navbar(active, permissions=None):
                    + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
                    + 'aria-expanded="false">Birds</a><div class="dropdown-menu" '\
                    + 'aria-labelledby="navbarDropdown">'
-            nav += '<a class="dropdown-item" href="/birdlist">Show</a>' \
-                   + '<a class="dropdown-item" href="/newbird">Add</a>'
+            nav += '<a class="dropdown-item" href="/birdlist">Show</a>'
             nav += '</div></li>'
         elif heading == 'Clutches' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
@@ -1444,7 +1556,7 @@ def show_bird(bname):
         if bird["user"] == user:
             nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
             if "No nest" not in nestpull:
-                controls += "Move bird to " + nestpull
+                controls += "Move bird to new nest" + nestpull
             controls += generate_location_pulldown(bird['id'], "bird", bird['location'])
             controls += '''
             <button type="button" class="btn btn-warning btn-sm" onclick='update_bird(%s,"unclaim");'>Unclaim bird</button>
@@ -1455,18 +1567,16 @@ def show_bird(bname):
             '''
             controls = controls % (bird['id'])
         elif not bird["user"]:
-            if set(['admin', 'manager']).intersection(permissions):
-                controls += generate_location_pulldown(bird['id'], "bird", bird['location'])
             controls += '''
             <button type="button" class="btn btn-success btn-sm" onclick='update_bird(%s,"claim");'>Claim bird</button>
             '''
             controls = controls % (bird['id'])
-    if not(bird["alive"]) and set(['admin', 'manager']).intersection(permissions):
+    if not(bird["alive"]) and set(['admin', 'edit', 'manager']).intersection(permissions):
         controls += '''
         <button type="button" class="btn btn-info btn-sm" onclick='update_bird(%s,"alive");'>Mark bird as alive</button>
         '''
         controls = controls % (bird['id'])
-    bprops, events = get_bird_properties(bird)
+    bprops, events = get_bird_properties(bird, user, permissions)
     return render_template('bird.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
@@ -1474,7 +1584,7 @@ def show_bird(bname):
 
 
 @app.route('/newbird')
-def new_bird():
+def add_bird():
     ''' Register a new bird
     '''
     user, face, permissions = get_user_profile()
@@ -1512,23 +1622,25 @@ def show_clutches(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     if rows:
-        header = ['Name', 'Nest', 'Start', 'End', 'Notes']
+        header = ['Name', 'Nest', 'Clutch early', 'Clutch late', 'Bird count', 'Notes']
         clutches = '''
         <table id="clutches" class="tablesorter standard">
         <thead>
         <tr><th>
         '''
         clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*5 + "</tr>"
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         fileoutput = ''
-        ftemplate = "\t".join(["%s"]*5) + "\n"
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
-            fileoutput += ftemplate % (row['name'], row['nest'], row['clutch_start'],
-                                       row['clutch_end'], row['notes'])
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['nest'],
+                                       strip_time(row['clutch_early']),
+                                       strip_time(row['clutch_late']), cnt, row['notes'])
             nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
             clutch = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
-            clutches += template % (clutch, nest, row['clutch_start'], row['clutch_end'],
-                                    row['notes'])
+            clutches += template % (clutch, nest, strip_time(row['clutch_early']),
+                                    strip_time(row['clutch_late']), cnt, row['notes'])
         clutches += "</tbody></table>"
         downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
         clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
@@ -1559,14 +1671,18 @@ def show_clutch(cname):
         return render_template("error.html", urlroot=request.url_root,
                                title="Not found", message=f"Clutch {cname} was not found")
     controls = ""
-    print(clutch)
-    if set(['admin', 'manager']).intersection(permissions):
-        controls += "<br>Move clutch to " \
-                    + generate_nest_pulldown(["breeding", "fostering"], clutch["id"])
+    # OPTIONAL: move clutch to new nest
+    #    controls += "<br>Move clutch to new nest " \
+    #                + generate_nest_pulldown(["breeding", "fostering"], clutch["id"])
+    if set(['admin', 'edit', 'manager']).intersection(permissions):
+        controls = '<button type="submit" id="sb" class="btn btn-primary" ' \
+                   + 'onclick="add_bird();" href="#">Add bird</button>'
+    cprops, birds = get_clutch_properties(clutch)
+    birds += '<input type="hidden" id="clutch_id" value="%s">' % (clutch["id"])
     return render_template('clutch.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Clutches', permissions),
-                           clutch=cname, nprops=get_clutch_properties(clutch), controls=controls)
+                           clutch=cname, cprops=cprops, birds=birds, controls=controls)
 
 
 @app.route('/newclutch')
@@ -1579,7 +1695,7 @@ def new_clutch():
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message="User %s is not registered" % user)
-    if not set(['admin', 'manager']).intersection(permissions):
+    if not set(['admin', 'edit', 'manager']).intersection(permissions):
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
                                message="You don't have permission to register a new clutch")
@@ -1587,6 +1703,7 @@ def new_clutch():
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Clutches', permissions),
                            start=date.today().strftime("%Y-%m-%d"),
+                           stop=date.today().strftime("%Y-%m-%d"),
                            nestselect=generate_nest_pulldown(["breeding", "fostering"]))
 
 
@@ -1609,24 +1726,25 @@ def show_nests(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     if rows:
-        header = ['Name', 'Band', 'Sire', 'Damsel', 'Location', 'Notes']
+        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
         nests = '''
         <table id="nests" class="tablesorter standard">
         <thead>
         <tr><th>
         '''
         nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*6 + "</tr>"
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         fileoutput = ''
-        ftemplate = "\t".join(["%s"]*6) + "\n"
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
             fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
-                                       row['damsel'], row['location'], row['notes'])
+                                       row['damsel'], cnt, row['location'], row['notes'])
             nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
             sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
             damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
             nests += template % (nest, row['band'], sire, damsel,
-                                 row['location'], row['notes'])
+                                 cnt, row['location'], row['notes'])
         nests += "</tbody></table>"
         downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
         nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
@@ -1658,10 +1776,7 @@ def show_nest(nname):
                                title="Not found", message=f"Nest {nname} was not found")
     controls = '<br>'
     if set(['admin', 'manager']).intersection(permissions):
-        nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
-        if "No nest" not in nestpull:
-            controls += "Move birds to " + nestpull
-        controls += generate_location_pulldown(nest['id'], "nest")
+        controls += generate_location_pulldown(nest['id'], "nest", nest["location"])
     nprops, birds, clutches = get_nest_properties(nest)
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
@@ -1715,16 +1830,30 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     locrows = ''
+    fheader = ['Location', 'Description', 'Number of birds']
+    header = ['Location', 'Description', 'Number of birds']
     if rows:
-        header = ['Location', 'Description', 'Number of birds']
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*(len(header)-1) \
-                   + '<td style="text-align: center">%s</td></tr>'
+        if set(['admin', 'manager']).intersection(permissions):
+            header.append("Delete")
+            template = '<tr class="open">' + ''.join("<td>%s</td>")*2 \
+                       + ''.join('<td style="text-align: center">%s</td>'*2) + '</tr>'
+        else:
+            template = '<tr class="open">' + ''.join("<td>%s</td>")*(len(header)-1) \
+                       + '<td style="text-align: center">%s</td></tr>'
+        lochead = "<tr>" + "".join([f"<th>{itm}</th>" for itm in header]) + "</tr>"
         fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
         for row in rows:
             fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'])
-            locrows += template % (row['display_name'], row['definition'], row['cnt'])
-        downloadable = create_downloadable('locations', header, ftemplate, fileoutput)
+            delcol = ""
+            if row['cnt'] == 0:
+                delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
+                         + ');"><i class="fa-solid fa-trash-can fa-lg" style="color:red"></i></a>'
+            if set(['admin', 'manager']).intersection(permissions):
+                locrows += template % (row['display_name'], row['definition'], row['cnt'], delcol)
+            else:
+                locrows += template % (row['display_name'], row['definition'], row['cnt'])
+        downloadable = create_downloadable('locations', fheader, ftemplate, fileoutput)
         locations = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                     + 'role="button">Download table</a>'
     else:
@@ -1746,7 +1875,7 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         <div class="form-group">
           <div class="col-md-5">
             <label for="Input2">Description</label>
-            <input type="text" class="form-control" id="definition" aria-describedby="itemHelp" placeholder="Enter description (option)">
+            <input type="text" class="form-control" id="definition" aria-describedby="itemHelp" placeholder="Enter description (optional)">
             <small id="itemHelp" class="form-text text-muted">Enter the description.</small>
           </div>
         </div>
@@ -1755,8 +1884,8 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
     response = make_response(render_template('locationlist.html', urlroot=request.url_root,
                                              face=face, dataset=app.config['DATASET'],
                                              navbar=generate_navbar('Locations', permissions),
-                                             locations=locations, locationrows=locrows,
-                                             addlocation=addloc))
+                                             locations=locations, locationhead=lochead,
+                                             locationrows=locrows, addlocation=addloc))
     return response
 
 
@@ -2290,6 +2419,41 @@ def add_cv_term(): # pragma: no cover
     return generate_response(result)
 
 
+@app.route('/cvterm', methods=['OPTIONS', 'DELETE'])
+def delete_cv_term(): # pragma: no cover
+    '''
+    Delete CV term
+    ---
+    tags:
+      - CV
+    parameters:
+      - in: query
+        name: id
+        schema:
+          type: string
+        required: true
+        description: cv  term ID
+    responses:
+      200:
+          description: CV term deleted
+      400:
+          description: Missing or incorrect arguments
+    '''
+    result = initialize_result()
+    ipd = receive_payload(result)
+    check_missing_parms(ipd, ['id'])
+    if not check_permission(result["rest"]["user"], ["admin", "manager"]):
+        raise InvalidUsage("You don't have permission to delete CV terms")
+    sql = "DELETE FROM cv_term WHERE id=%s"
+    try:
+        print(sql % (ipd['id']))
+        g.c.execute(sql % (ipd['id']))
+        result['rest']['row_count'] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    g.db.commit()
+    return generate_response(result)
+
 # *****************************************************************************
 # * Bird endpoints                                                            *
 # *****************************************************************************
@@ -2317,7 +2481,7 @@ def bird_location(bird_id, location_id):
         description: location ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin"]):
+    if not check_permission(result["rest"]["user"], ["admin", "manager"]):
         raise InvalidUsage("You don't have permission to change a bird's location")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET location_id =%s WHERE id=%s"
@@ -2327,7 +2491,7 @@ def bird_location(bird_id, location_id):
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(result["rest"]["bird_id"], status="moved", user=result['rest']['user'],
+    log_bird_event(bird_id, status="moved", user=result['rest']['user'],
                    location_id=location_id)
     g.db.commit()
     return generate_response(result)
@@ -2356,7 +2520,7 @@ def bird_nest(bird_id, nest_id):
         description: nest ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin"]):
+    if not check_permission(result["rest"]["user"], ["admin", "manager"]):
         raise InvalidUsage("You don't have permission to change a bird's nest")
     result["rest"]["row_count"] = 0
     try:
@@ -2378,6 +2542,81 @@ def bird_nest(bird_id, nest_id):
     return generate_response(result)
 
 
+@app.route('/bird/notes/<string:bird_id>', methods=['OPTIONS', 'POST'])
+def bird_notes(bird_id):
+    '''
+    Update a bird's sex
+    Update a bird's sex.
+    ---
+    tags:
+      - Bird
+    parameters:
+      - in: path
+        name: bird_id
+        schema:
+          type: string
+        required: true
+        description: bird ID
+      - in: query
+        name: notes
+        schema:
+          type: string
+        required: true
+        description: notes
+    '''
+    result = initialize_result()
+    ipd = receive_payload(result)
+    if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
+        raise InvalidUsage("You don't have permission to change a bird's notes")
+    result["rest"]["row_count"] = 0
+    sql = "UPDATE bird SET notes=%s WHERE id=%s"
+    try:
+        bind = (ipd["notes"], bird_id)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    g.db.commit()
+    return generate_response(result)
+
+
+@app.route('/bird/sex/<string:bird_id>/<string:sex>', methods=['OPTIONS', 'POST'])
+def bird_sex(bird_id, sex):
+    '''
+    Update a bird's sex
+    Update a bird's sex.
+    ---
+    tags:
+      - Bird
+    parameters:
+      - in: path
+        name: bird_id
+        schema:
+          type: string
+        required: true
+        description: bird ID
+      - in: path
+        name: sex
+        schema:
+          type: string
+        required: true
+        description: sex
+    '''
+    result = initialize_result()
+    if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
+        raise InvalidUsage("You don't have permission to change a bird's sex")
+    result["rest"]["row_count"] = 0
+    sql = "UPDATE bird SET sex=%s WHERE id=%s"
+    try:
+        bind = (sex, bird_id)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    g.db.commit()
+    return generate_response(result)
+
+
 @app.route('/bird/alive/<string:bird_id>', methods=['OPTIONS', 'POST'])
 def alive_bird(bird_id):
     '''
@@ -2395,7 +2634,7 @@ def alive_bird(bird_id):
         description: bird ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin"]):
+    if not check_permission(result["rest"]["user"], ["admin", "manager"]):
         raise InvalidUsage("You don't have permission to report a bird as alive")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET alive=1,death_date=NULL WHERE id=%s"
@@ -2426,7 +2665,7 @@ def claim_bird(bird_id):
         description: bird ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin", "edit"]):
+    if not check_permission(result["rest"]["user"], ["admin", "edit", 'manager']):
         raise InvalidUsage("You don't have permission to claim a bird")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET user_id=(SELECT id FROM user WHERE name=%s) WHERE id=%s"
@@ -2458,7 +2697,7 @@ def dead_bird(bird_id):
         description: bird ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin", "edit"]):
+    if not check_permission(result["rest"]["user"], ["admin", "edit", 'manager']):
         raise InvalidUsage("You don't have permission to report a bird as dead")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET alive=0,death_date=CURRENT_TIMESTAMP(),user_id=NULL WHERE id=%s"
@@ -2491,7 +2730,7 @@ def unclaim_bird(bird_id):
         description: bird ID
     '''
     result = initialize_result()
-    if not check_permission(result['rest']['user'], ['admin', 'edit']):
+    if not check_permission(result['rest']['user'], ['admin', 'edit', 'manager']):
         raise InvalidUsage("You don't have permission to unclaim a bird")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET user_id=NULL WHERE id=%s"
@@ -2509,8 +2748,8 @@ def unclaim_bird(bird_id):
 @app.route('/registerbird', methods=['OPTIONS', 'POST'])
 def register_bird():
     '''
-    Register a bird
-    Register a new bird
+    Register new birds
+    Register new birds.
     ---
     tags:
       - Bird
@@ -2534,6 +2773,12 @@ def register_bird():
         required: true
         description: band2 number
       - in: query
+        name: bands
+        schema:
+          type: array
+        required: true
+        description: array of arrays containing bands
+      - in: query
         name: start_date
         schema:
           type: string
@@ -2545,12 +2790,6 @@ def register_bird():
           type: string
         required: true
         description: hatch late date
-      - in: query
-        name: sex
-        schema:
-          type: string
-        required: true
-        description: sex (M or F)
       - in: query
         name: claim
         schema:
@@ -2566,47 +2805,21 @@ def register_bird():
     '''
     result = initialize_result()
     ipd = receive_payload(result)
-    if not check_permission(result['rest']['user'], ['admin', 'edit']):
+    check_dates(ipd)
+    if not check_permission(result['rest']['user'], ['admin', 'edit', 'manager']):
         raise InvalidUsage("You don't have permission to register a bird")
-    check_missing_parms(ipd, ["nest_id", "number1", "number2", "start_date",
-                              "stop_date", "sex", "claim"])
-    result['rest']['row_count'] = 0
-    name, band, nest, loc_id = get_banding_and_location(ipd)
-    # User
-    user_id = None
-    if ipd["claim"]:
-        try:
-            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
-            row = g.c.fetchone()
-            user_id = row["id"]
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
-    result['rest']['row_count'] = 0
-    if not ipd["notes"]:
-        ipd["notes"] = None
-    sql = "INSERT INTO bird (species_id,name,band,nest_id,location_id,user_id,sex,notes," \
-          + "alive,hatch_early,hatch_late) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s)"
+    check_missing_parms(ipd, ["clutch_id", "bands"])
     try:
-        bind = (1, name, band, ipd["nest_id"], loc_id, user_id, ipd["sex"], ipd['notes'],
-                ipd["start_date"], ipd["stop_date"])
-        g.c.execute(sql, bind)
-        result["rest"]["row_count"] += g.c.rowcount
-        result["rest"]["bird_id"] = g.c.lastrowid
+        g.c.execute("SELECT * FROM clutch WHERE id=%s", (ipd["clutch_id"]))
+        row = g.c.fetchone()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
-          + "VALUES ('genetic',%s,%s,%s,%s)"
-    try:
-        bind = (result["rest"]["bird_id"], nest["sire_id"], nest["damsel_id"], ipd["start_date"])
-        g.c.execute(sql, bind)
-        result["rest"]["row_count"] += g.c.rowcount
-        result["rest"]["relationship_id"] = g.c.lastrowid
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(result["rest"]["bird_id"], user=result['rest']['user'], location_id=loc_id)
-    if ipd["claim"]:
-        log_bird_event(result["rest"]["bird_id"], status="claimed", user=result['rest']['user'],
-                       location_id=loc_id)
+    print(row)
+    ipd["claim"] = 0
+    ipd["nest_id"] = row["nest_id"]
+    ipd["start_date"] = str(row["clutch_early"]).split(" ")[0]
+    ipd["stop_date"] = str(row["clutch_late"]).split(" ")[0]
+    register_birds(ipd, result)
     g.db.commit()
     return generate_response(result)
 
@@ -2645,21 +2858,26 @@ def register_clutch():
     '''
     result = initialize_result()
     ipd = receive_payload(result)
-    if not check_permission(result['rest']['user'], ['admin', 'edit']):
+    if not check_permission(result['rest']['user'], ['admin', 'edit', 'manager']):
         raise InvalidUsage("You don't have permission to register a clutch")
-    check_missing_parms(ipd, ["nest_id", "start_date"])
+    check_missing_parms(ipd, ["nest_id", "start_date", "stop_date"])
+    check_dates(ipd)
     nest = get_record(ipd['nest_id'], "nest")
     name = "_".join([ipd['start_date'].replace("-", ""), nest['name']])
     result['rest']['row_count'] = 0
-    result['rest']['row_count'] = 0
-    sql = "INSERT INTO clutch (name, nest_id, notes, clutch_start) VALUES (%s,%s,%s,%s)"
+    sql = "INSERT INTO clutch (name, nest_id, notes, clutch_early,clutch_late) VALUES " \
+          + "(%s,%s,%s,%s,%s)"
     try:
-        bind = (name, ipd["nest_id"], ipd['notes'], ipd["start_date"])
+        bind = (name, ipd["nest_id"], ipd['notes'], ipd["start_date"], ipd["stop_date"])
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
         result["rest"]["clutch_id"] = g.c.lastrowid
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
+    if "bands" in ipd and ipd["bands"]:
+        del ipd["notes"]
+        ipd["clutch_id"] = result["rest"]["clutch_id"]
+        register_birds(ipd, result)
     g.db.commit()
     return generate_response(result)
 
@@ -2864,6 +3082,7 @@ def register_nest():
     if not check_permission(result['rest']['user'], ['admin', 'edit']):
         raise InvalidUsage("You don't have permission to register a nest")
     check_missing_parms(ipd, ["start_date", "color1", "color2", "location"])
+    check_dates(ipd)
     result['rest']['row_count'] = 0
     name, band = get_banding(ipd)
     result['rest']['row_count'] = 0
@@ -2874,13 +3093,14 @@ def register_nest():
         if not ipd["female3_id"]:
             ipd["female3_id"] = None
         sql = "INSERT INTO nest (name,band,female1_id,female2_id,female3_id,fostering," \
-              + "notes,create_date) VALUES (%s,%s,%s,%s,%s,1,%s,%s)"
+              + "location_id,notes,create_date) VALUES (%s,%s,%s,%s,%s,1,%s,%s,%s)"
         bind = (name, band, ipd["female1_id"], ipd["female2_id"], ipd["female3_id"],
-                ipd['notes'], ipd["start_date"])
+                ipd["location"], ipd['notes'], ipd["start_date"])
     else:
-        sql = "INSERT INTO nest (name,band,sire_id,damsel_id,breeding,notes,create_date) " \
-              + "VALUES (%s,%s,%s,%s,1,%s,%s)"
-        bind = (name, band, ipd["sire_id"], ipd["damsel_id"], ipd['notes'], ipd["start_date"])
+        sql = "INSERT INTO nest (name,band,sire_id,damsel_id,breeding,location_id,notes,create_date) " \
+              + "VALUES (%s,%s,%s,%s,1,%s,%s,%s)"
+        bind = (name, band, ipd["sire_id"], ipd["damsel_id"], ipd["location"], ipd['notes'],
+                ipd["start_date"])
     try:
         print(sql % bind)
         g.c.execute(sql, bind)
@@ -3171,4 +3391,5 @@ def delete_user_permission(): # pragma: no cover
 
 
 if __name__ == '__main__':
-    app.run(ssl_context="adhoc", debug=True)
+    #app.run(ssl_context="adhoc", debug=True)
+    app.run(debug=True)
