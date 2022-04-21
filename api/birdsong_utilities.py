@@ -2,6 +2,7 @@
     Birdsong manager utilities
 '''
 
+from datetime import datetime
 import random
 import re
 import string
@@ -70,6 +71,26 @@ def add_key_value_pair(key, val, separator, sql, bind):
     return sql, bind
 
 
+def apply_color(text, true_color, condition=True, false_color=None, false_text=None):
+    ''' Return colorized text
+        Keyword arguments:
+          text: text to colorize
+          true_color: color if condition is true
+          condition: condition to determine color
+          false_color: color if condition is false
+          false_text: text replacement if condition is false
+        Returns:
+          colorized text
+    '''
+    if not condition:
+        if false_text:
+            text = false_text
+        if not false_color:
+            return text
+    return "<span style='color:%s'>%s</span>" \
+           % ((true_color, text) if condition else (false_color, text))
+
+
 def call_responder(server, endpoint):
     ''' Call a responder
         Keyword arguments:
@@ -89,6 +110,19 @@ def call_responder(server, endpoint):
     print("Could not get response from %s: %s" % (url, req.text))
     #raise InvalidUsage("Could not get response from %s: %s" % (url, req.text))
     raise InvalidUsage(req.text, req.status_code)
+
+
+def check_dates(ipd):
+    ''' Ensure that start/stop dates are in sequence
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          None (or raised error for dates out of sequence)
+    '''
+    if "start_date" in ipd and "stop_date" in ipd:
+        if ipd["start_date"] and ipd["stop_date"]:
+            if ipd["stop_date"] < ipd["start_date"]:
+                raise InvalidUsage("Stop date must be >= start date")
 
 
 def check_permission(user, permission=None):
@@ -121,6 +155,23 @@ def check_permission(user, permission=None):
         if row:
             return True
     return False
+
+
+def create_downloadable(name, header, template, content):
+    ''' Generate a dowenloadabe content file
+        Keyword arguments:
+          name: base file name
+          header: table header
+          template: header row template
+          content: table content
+        Returns:
+          File name
+    '''
+    fname = "%s_%s_%s.tsv" % (name, random_string(), datetime.today().strftime("%Y%m%d%H%M%S"))
+    with open("/tmp/%s" % (fname), "w", encoding="utf8") as text_file:
+        text_file.write(template % tuple(header))
+        text_file.write(content)
+    return fname
 
 
 def generate_sql(request, result, sql, query=False):
@@ -190,8 +241,7 @@ def get_banding_and_location(ipd):
         Keyword arguments:
           ipd: request payload
         Returns:
-          name: bird name
-          band: bird band
+          band: list of bird names and band names
           nest: nest record
           loc_id: location ID
     '''
@@ -210,11 +260,6 @@ def get_banding_and_location(ipd):
         nest = g.c.fetchone()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    band = "".join([nest['band'][0:2], ipd["number1"], nest['band'][-2:], ipd["number2"]])
-    color1 = color[nest['band'][0:2]]
-    color2 = color[nest['band'][-2:]]
-    name = "".join([ipd["start_date"].replace("-", ""), "_", color1, ipd["number1"],
-                    color2, ipd["number2"]])
     # Location
     try:
         g.c.execute("SELECT location_id FROM bird WHERE id=%s", (nest["sire_id"],))
@@ -222,13 +267,41 @@ def get_banding_and_location(ipd):
         loc_id = row["location_id"]
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    return name, band, nest, loc_id
+    # Bands
+    band = []
+    for barr in ipd['bands']:
+        nband = "".join([nest['band'][0:2], barr[0], nest['band'][-2:], barr[1]])
+        color1 = color[nest["band"][0:2]]
+        color2 = color[nest["band"][-2:]]
+        name = "".join([ipd["start_date"].replace("-", ""), "_", color1, barr[0],
+                       color2, barr[1]])
+        band.append({"name": name, "band": nband})
+    return band, nest, loc_id
+
+
+def get_clutch_or_nest_count(cnid, which="clutch"):
+    ''' Return the number of birds in a clutch or nest
+        Keyword arguments:
+          cnid: clutch or nest ID
+          ehich: "clutch" or "nest"
+        Returns:
+           Bird count
+    '''
+    try:
+        sql = "SELECT COUNT(1) AS cnt FROM bird WHERE %s_id=%s" % (which, cnid)
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500)
+    return rows[0]["cnt"]
 
 
 def get_key_type_id(key_type):
     ''' Determine the ID for a key type
         Keyword arguments:
           key_type: key type
+        Returns:
+          key type ID
     '''
     if key_type not in KEY_TYPE_IDS:
         try:
@@ -318,6 +391,8 @@ def validate_user(user):
     ''' Validate a user
         Keyword arguments:
           user: user name or Janelia ID
+        Returns:
+          True or False
     '''
     stmt = "SELECT * FROM user_vw WHERE name=%s OR janelia_id=%s"
     try:
@@ -326,3 +401,87 @@ def validate_user(user):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500)
     return bool(usr)
+
+
+def generate_birdlist_table(rows, showall=True):
+    ''' Given rows from bird_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+          showall: show all birds
+        Returns:
+          HTML table
+    '''
+    header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
+              'Current age', 'Alive']
+    if showall:
+        header.insert(3, "Claimed by")
+    if rows:
+        birds = '''
+        <table id="birds" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            outcol = [row['name'], row['band'], row['nest'], row['location'],
+                      row['sex'], row['notes'], row['current_age'], row['alive']]
+            if showall:
+                outcol.insert(3, row["username"])
+            fileoutput += ftemplate % tuple(outcol)
+            rclass = 'alive' if row['alive'] else 'dead'
+            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
+            if not row['alive']:
+                row['current_age'] = '-'
+            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
+                      row['notes'], row['current_age'], alive]
+            if showall:
+                outcol.insert(4, row["username"])
+            birds += template % tuple(outcol)
+        birds += "</tbody></table>"
+        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
+        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
+                % (downloadable) + 'role="button">Download table</a>' + birds
+    else:
+        birds = "No birds were found"
+    return birds
+
+
+def generate_nestlist_table(rows):
+    ''' Given rows from nest_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
+        nests = '''
+        <table id="nests" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
+                                       row['damsel'], cnt, row['location'], row['notes'])
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
+            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
+            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
+            nests += template % (nest, row['band'], sire, damsel,
+                                 cnt, row['location'], row['notes'])
+        nests += "</tbody></table>"
+        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
+        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                 + 'role="button">Download table</a>' + nests
+    else:
+        nests = "No nests were found"
+    return nests

@@ -371,26 +371,6 @@ def valid_cv_term(cv, cv_term):
     return bool(cv_term in app.config["VALID_TERMS"][cv])
 
 
-def apply_color(text, true_color, condition=True, false_color=None, false_text=None):
-    ''' Return colorized text
-        Keyword arguments:
-          text: text to colorize
-          true_color: color if condition is true
-          condition: condition to determine color
-          false_color: color if condition is false
-          false_text: text replacement if condition is false
-        Returns:
-          colorized text
-    '''
-    if not condition:
-        if false_text:
-            text = false_text
-        if not false_color:
-            return text
-    return "<span style='color:%s'>%s</span>" \
-           % ((true_color, text) if condition else (false_color, text))
-
-
 def get_bird_events(bird):
     ''' Get a bird's events
         Keyword arguments:
@@ -1117,7 +1097,7 @@ def generate_navbar(active, permissions=None):
       <div class="collapse navbar-collapse" id="navbarSupportedContent">
         <ul class="navbar-nav mr-auto">
     '''
-    for heading in ['Birds', 'Clutches', 'Nests', 'Locations', 'Users']:
+    for heading in ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Users']:
         basic = '<li class="nav-item active">' if heading == active else '<li class="nav-item">'
         if heading == 'Birds' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
@@ -1159,28 +1139,14 @@ def generate_navbar(active, permissions=None):
             nav += '</div></li>'
         else:
             nav += basic
-            link = ('/' + heading[:-1] + 'list').lower()
+            if heading in ["Searches"]:
+                link = ('/' + heading[:-2] + 'list').lower()
+            else:
+                link = ('/' + heading[:-1] + 'list').lower()
             nav += '<a class="nav-link" href="%s">%s</a>' % (link, heading)
             nav += '</li>'
     nav += '</ul></div></nav>'
     return nav
-
-
-def create_downloadable(name, header, template, content):
-    ''' Generate a dowenloadabe content file
-        Keyword arguments:
-          name: base file name
-          header: table header
-          template: header row template
-          content: table content
-        Returns:
-          File name
-    '''
-    fname = "%s_%s_%s.tsv" % (name, random_string(), datetime.today().strftime("%Y%m%d%H%M%S"))
-    with open("/tmp/%s" % (fname), "w", encoding="utf8") as text_file:
-        text_file.write(template % tuple(header))
-        text_file.write(content)
-    return fname
 
 
 @app.errorhandler(InvalidUsage)
@@ -1477,43 +1443,7 @@ def show_birds(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     controls = which_birds_user()
-    if rows:
-        header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
-                  'Current age', 'Alive']
-        if ipd["which"] != "mine":
-            header.insert(3, "Claimed by")
-        birds = '''
-        <table id="birds" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            outcol = [row['name'], row['band'], row['nest'], row['location'],
-                      row['sex'], row['notes'], row['current_age'], row['alive']]
-            if ipd["which"] != "mine":
-                outcol.insert(3, row["username"])
-            fileoutput += ftemplate % tuple(outcol)
-            rclass = 'alive' if row['alive'] else 'dead'
-            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
-            if not row['alive']:
-                row['current_age'] = '-'
-            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
-                      row['notes'], row['current_age'], alive]
-            if ipd["which"] != "mine":
-                outcol.insert(4, row["username"])
-            birds += template % tuple(outcol)
-        birds += "</tbody></table>"
-        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
-        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
-                   % (downloadable) + 'role="button">Download table</a>' + birds
-    else:
-        birds = "There are no birds"
+    birds = generate_birdlist_table(rows, (ipd["which"] != "mine"))
     if request.method == 'POST':
         return {"birds": birds}
     if not token:
@@ -1725,32 +1655,7 @@ def show_nests(): # pylint: disable=R0914,R0912,R0915
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    if rows:
-        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
-        nests = '''
-        <table id="nests" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
-                                       row['damsel'], cnt, row['location'], row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
-            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
-            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
-            nests += template % (nest, row['band'], sire, damsel,
-                                 cnt, row['location'], row['notes'])
-        nests += "</tbody></table>"
-        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
-        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                 + 'role="button">Download table</a>' + nests
-    else:
-        nests = "There are no nests"
+    nests = generate_nestlist_table(rows)
     if request.method == 'POST':
         return {"nests": nests}
     response = make_response(render_template('nestlist.html', urlroot=request.url_root,
@@ -1887,6 +1792,69 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
                                              locations=locations, locationhead=lochead,
                                              locationrows=locrows, addlocation=addloc))
     return response
+
+
+@app.route('/searchlist')
+def show_search_form():
+    ''' Make an assignment for a project
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    return render_template('search.html', urlroot=request.url_root, face=face,
+                           dataset=app.config['DATASET'], navbar=generate_navbar('Bird'))
+
+
+@app.route('/run_search', methods=['OPTIONS', 'POST'])
+def run_search():
+    '''
+    Search the database
+    Search by key text.
+    ---
+    tags:
+      - Search
+    parameters:
+      - in: query
+        name: key_type
+        schema:
+          type: string
+        required: true
+        description: key type (display term)
+      - in: query
+        name: key_text
+        schema:
+          type: string
+        required: true
+        description: key text
+    responses:
+      200:
+          description: Database entries
+      500:
+          description: Error
+    '''
+    result = initialize_result()
+    ipd = receive_payload(result)
+    check_missing_parms(ipd, ['key_type', 'key_text'])
+    result["data"] = ""
+    if ipd['key_type'] == 'bird':
+        sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR band LIKE %s ORDER BY name'
+        dbresult = "<h2>Birds</h2>"
+    elif ipd['key_type'] == 'nest':
+        sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR band LIKE %s ORDER BY name'
+        dbresult = "<h2>Nests</h2>"
+    bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+    try:
+        g.c.execute(sql, bind)
+        rows = g.c.fetchall()
+        result['rest']['sql_statement'] = g.c.mogrify(sql, bind)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500)
+    if ipd['key_type'] == 'bird':
+        dbresult += generate_birdlist_table(rows)
+    elif ipd['key_type'] == 'nest':
+        dbresult += generate_nestlist_table(rows)
+    result['data'] += dbresult
+    return generate_response(result)
 
 
 # *****************************************************************************
@@ -2453,6 +2421,7 @@ def delete_cv_term(): # pragma: no cover
         raise InvalidUsage(sql_error(err), 500) from err
     g.db.commit()
     return generate_response(result)
+
 
 # *****************************************************************************
 # * Bird endpoints                                                            *
@@ -3391,5 +3360,5 @@ def delete_user_permission(): # pragma: no cover
 
 
 if __name__ == '__main__':
-    #app.run(ssl_context="adhoc", debug=True)
-    app.run(debug=True)
+    app.run(ssl_context="adhoc", debug=True)
+    #app.run(debug=True)
