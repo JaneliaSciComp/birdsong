@@ -19,6 +19,7 @@
   {% endblock %}
 </head>
 <body {% block onload %}{% endblock %}>
+  <div class="base_header">
   <div class="pb-0 mt-0 mb-0 border-bottom">
     <div class="pull-left">
       <span style="font-weight: 200; font-size: 24px">Birdsong</span>
@@ -33,7 +34,10 @@
     <div class="clearfix"></div>
   </div>
   <br>
-  <div id="content">{% block content %}{% endblock %}</div>
+  {{navbar|safe}}
+  </div>
+
+  <div id="content" class="base_content">{% block content %}{% endblock %}</div>
   <br>
 </body>
 </html>

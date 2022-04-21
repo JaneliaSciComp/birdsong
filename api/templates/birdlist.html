@@ -18,7 +18,7 @@ function get_birds()
 {
   token = $.cookie('birdsong-token')
   if ($('#start').val() > $('#stop').val()) {
-    alert("Start date must be <= stop date");
+    alert("Hatch early must be <= hatch late");
     return False;
   }
   array = {"start_date": $('#start').val(),
@@ -64,11 +64,10 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  {{navbar|safe}}
   <h2>Birds</h2>
   <div style='float: left;margin:10px 0 15px 0;'>
-  <div style='float: left'>Start date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
-  <div style='float: left;margin-left: 10px;'>Stop date:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
+  <div style='float: left'>Hatch early:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
+  <div style='float: left;margin-left: 10px;'>Hatch late:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
   {{controls|safe}}
   <div style='float: left;margin-left: 10px;'><button type="submit" class="btn btn-outline-success btn-sm" onclick="get_birds();" href='#'>Reselect birds</button></div>
   </div>

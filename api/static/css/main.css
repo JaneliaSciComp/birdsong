@@ -1,6 +1,25 @@
+.base_header {
+  position: fixed;
+  height: 170px;
+  width: 100%;
+  z-index: 10;
+  background-color: #222;
+}
+
+.base_content {
+  position: absolute;
+  top: 170px;
+  z-index: 5
+}
+
 table.standard {
   border-collapse: collapse;
   font-size: 11pt;
+}
+
+.standard thead {
+  position: sticky;
+  inset-block-start: 0;
 }
 
 .standard th {
@@ -23,8 +42,8 @@ table.standard {
 
 .user_image {
   padding-right: 5px;
-  width: 50px;
-  height: 50px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
 }
 

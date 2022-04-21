@@ -12,7 +12,7 @@ function get_clutches()
 {
   token = $.cookie('birdsong-token')
   if (($('#start').val() && $('#stop').val()) && $('#start').val() > $('#stop').val()) {
-    alert("Start date must be <= stop date");
+    alert("Clutch early must be <= clutch late");
     return False;
   }
   array = {"start_date": $('#start').val(),
@@ -56,11 +56,10 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  {{navbar|safe}}
   <h2>Clutches</h2>
   <div style='float: left;margin:10px 0 15px 0;'>
-  <div style='float: left'>Start date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
-  <div style='float: left;margin-left: 10px;'>Stop date:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
+  <div style='float: left'>Clutch early:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
+  <div style='float: left;margin-left: 10px;'>Clutch late:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
   <div style='float: left;margin-left: 10px;'><button type="submit" class="btn btn-outline-success btn-sm" onclick="get_clutches();" href='#'>Reselect clutches</button></div>
   </div>
   <script>

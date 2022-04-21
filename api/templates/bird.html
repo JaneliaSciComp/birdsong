@@ -59,6 +59,57 @@ function select_nest(bird, sel) {
   });
 }
 
+function select_sex(bird, sel) {
+  selected = sel.value
+  url = '/bird/sex/' + bird + '/' + selected
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      contentType:'application/json',
+      success: function(result) {
+        alert("This bird's sex has been changed");
+        window.location.href = window.location.pathname 
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+
+function add_notes(bird, sel) {
+  selected = sel.value
+  url = '/bird/notes/' + bird
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      data: JSON.stringify({"notes": selected}),
+      contentType:'application/json',
+      success: function(result) {
+        alert("Added notes to bird");
+        window.location.href = window.location.pathname
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+
 function update_bird(bird, operation) {
   url = '/bird/' + operation + '/' + bird
   token = $.cookie('birdsong-token')
@@ -100,7 +151,6 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  {{navbar|safe}}
   <h2>Bird {{ bird }}</h2>
   <table id='birdprops' class="property">
   <tbody>

@@ -6,6 +6,67 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
 <script>
+function add_bird() {
+  token = $.cookie('birdsong-token');
+  url = "/registerbird";
+  var array = {"clutch_id": $('#clutch_id').val()
+              };
+  var uppers = [];
+  error = 0;
+  $('.uppernum').each(function() {
+    if (this.value) {
+      uppers.push(this.value);
+    } else {
+      alert("Upper band # must be specified");
+      error = 1;
+    }
+  });
+  if (error) {
+    return;
+  }
+  bandnum = []
+  $('.lowernum').each(function() {
+    uv = uppers.shift();
+    if (this.value) {
+      bandnum.push([uv,this.value]);
+    } else {
+      alert("Lower band # must be specified");
+      error = 1;
+    }
+  });
+  if (error) {
+    return;
+  }
+  array["bands"] = bandnum;
+  $.ajax({
+    url: url,
+    async: false,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'POST',
+    dataType: 'json',
+    data: JSON.stringify(array),
+    contentType:'application/json',
+    success: function(result) {
+      alert("A new bird has been added to the clutch");
+      window.location.href = window.location.pathname;
+    },
+    error: function(xhr, ajaxOptions, thrownError, dataType) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else {
+        try {
+          data = JSON.parse(xhr.responseText);
+          alert(xhr.status + ': ' + thrownError + "\n" + data.rest.error);
+        }
+        catch {
+          alert(xhr.status + ': ' + thrownError);
+        }
+      }
+    }
+  });
+}
+
 function select_nest(clutch, sel) {
   selected = sel.value
   url = '/clutch/nest/' + clutch + '/' + selected
@@ -37,14 +98,37 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  {{navbar|safe}}
   <h2>Clutch {{ clutch }}</h2>
   <table id='clutchprops' class="property">
   <tbody>
-  {% for row in nprops %}
+  {% for row in cprops %}
     <tr><td>{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
   {% endfor %}
   </tbody>
   </table>
-  {{controls|safe}}
+  <br>
+  {{birds|safe}}
+  <br>
+  <div class="container">
+    <table id="birdtable" class=" table order-list" style="width:350px">
+      <thead style="color:white">
+        <tr><td colspan=2><h4>Add bird to clutch</h4></td></tr>
+        <tr>
+          <td>Upper band #</td>
+          <td>Lower band #</td>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <input type="text" name="upper_band" class="form-control uppernum" />
+          </td>
+          <td>
+            <input type="text" name="lower_band" class="form-control lowernum" />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    {{controls|safe}}
+  </div>
 {% endblock %}

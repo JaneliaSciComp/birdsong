@@ -68,7 +68,6 @@ $('select').selectpicker();
 </script>
 {% endblock %}
 {% block content %}
-  {{navbar|safe}}
   <h2>Register a new bird</h2>
   <br>
   <h4>Required parameters:</h4>
@@ -84,9 +83,9 @@ $('select').selectpicker();
   <div class="grid-container" width="500">
     <div class="grid-item">Nest:</div>
     <div class="grid-item">{{nestselect | safe}}</div>
-    <div class="grid-item">Upper band:</div>
+    <div class="grid-item">Upper band #:</div>
     <div class="grid-item"><input id="number1" size=5></div>
-    <div class="grid-item">Lower band:</div>
+    <div class="grid-item">Lower band #:</div>
     <div class="grid-item"><input id="number2" size=5></div>
     <div class="grid-item">Sex:</div>
     <div class="grid-item"><select id="sex"><option value="M">M</option><option value="F">F</option></select></div>

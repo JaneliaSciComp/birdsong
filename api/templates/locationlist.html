@@ -1,11 +1,42 @@
 {% extends "base.html" %}
 {% block css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
 {% endblock %}
 {% block script %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
 <script>
+function delete_location(lid) {
+  url = '/cvterm';
+  token = $.cookie('birdsong-token');
+  $.ajax({
+    url: url,
+    headers: {"Authorization": 'Bearer ' + token },
+    type: 'DELETE',
+    dataType: 'json',
+    data: JSON.stringify({"id":lid, 
+                         }),
+    contentType:'application/json',
+    success: function(result) {
+      alert("The location has been deleted");
+      window.location.href = '/locationlist';
+    },
+    error: function (xhr, ajaxOptions, thrownError) {
+      if (xhr.status == 401) {
+        alert("You are not authenticated");
+      }
+      else if (xhr.status == 400) {
+        json = JSON.parse(xhr.responseText);
+        alert(json['rest']['error']);
+      }
+      else {
+        alert(xhr.status + ': ' + thrownError);
+      }
+    }
+  });
+}
+
 function add_location() {
   if (!$('#display_name').val()) {
     alert("You must enter a location name");
@@ -47,14 +78,13 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  {{navbar|safe}}
   <h2>Locations</h2>
   <div class="flexrow">
     <div class="flexcol">
       {{locations|safe}}
       <table id="locations" class="tablesorter standard">
       <thead>
-        <tr><th>Location</th><th>Description</th><th>Number of birds</th></tr>
+        {{locationhead|safe}}
       </thead>
       <tbody>
       {{locationrows|safe}}
