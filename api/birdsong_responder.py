@@ -16,11 +16,12 @@ from flask.json import JSONEncoder
 from flask_cors import CORS
 from flask_swagger import swagger
 import jwt
-from oauthlib.oauth2 import WebApplicationClient
 import pymysql.cursors
 import pymysql.err
 import requests
+from oauthlib.oauth2 import WebApplicationClient
 
+# pylint: disable=W0401, W0614
 import birdsong_utilities
 from birdsong_utilities import *
 
@@ -33,6 +34,9 @@ READ = {
                  + "object_id=%s",
     'BSUMMARY': "SELECT * FROM bird_vw ORDER BY name DESC",
     'CSUMMARY': "SELECT * FROM clutch_vw ORDER BY name DESC",
+    'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
+             + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
+             + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
     'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
                 + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
                 + "WHERE cv_id=getCvId('location','') group by 1,2,3,4",
@@ -49,12 +53,12 @@ WRITE = {
 }
 
 
-# pylint: disable=C0302,C0103,W0703
+# pylint: disable=C0302,C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, obj1):   # pylint: disable=E0202, W0221, W0237
+    def default(self, obj1):   # pylint: disable=E0202, W0221
         try:
             if isinstance(obj1, datetime):
                 return obj1.strftime("%a, %-d %b %Y %H:%M:%S")
@@ -78,6 +82,14 @@ app.config.from_pyfile("config.cfg")
 # Override Flask's usual behavior of sorting keys (interferes with prioritization)
 app.config["JSON_SORT_KEYS"] = False
 CORS(app, supports_credentials=True)
+def define_views():
+    ''' Populate app.config['VIEWS']
+    '''
+    rows = CURSOR.fetchall()
+    for row in rows:
+        table = list(row.values())[0]
+        if table.endswith("_vw"):
+            app.config["VIEWS"].append(table)
 try:
     CONN = pymysql.connect(host=app.config["MYSQL_DATABASE_HOST"],
                            user=app.config["MYSQL_DATABASE_USER"],
@@ -85,6 +97,8 @@ try:
                            db=app.config["MYSQL_DATABASE_DB"],
                            cursorclass=pymysql.cursors.DictCursor)
     CURSOR = CONN.cursor()
+    CURSOR.execute("SHOW TABLES")
+    define_views()
 except Exception as erro:
     ttemplate = "An exception of type {0} occurred. Arguments:\n{1!r}"
     tmessage = ttemplate.format(type(erro).__name__, erro.args)
@@ -95,7 +109,7 @@ CLIENT = WebApplicationClient(app.config["GOOGLE_CLIENT_ID"])
 app.config["STARTTIME"] = time()
 app.config["STARTDT"] = datetime.now()
 app.config["LAST_TRANSACTION"] = time()
-IDCOLUMN = 0
+IDCOLUMN = False
 START_TIME = ''
 
 
@@ -125,7 +139,6 @@ def before_request():
 # ******************************************************************************
 # * Utility functions                                                          *
 # ******************************************************************************
-
 
 def decode_token(token):
     ''' Decode a given JWT token
@@ -183,127 +196,6 @@ def initialize_result():
         g.db.ping()
     app.config["LAST_TRANSACTION"] = time()
     return result
-
-
-def execute_sql(result, sql, container, query=False):
-    ''' Build and execute a SQL statement.
-        Keyword arguments:
-          result: result dictionary
-          sql: base SQL statement
-          container: name of dictionary in result disctionary to return rows
-          query: uses "id" column if true
-        Returns:
-          True if successful
-    '''
-    # pylint: disable=W0603
-    global IDCOLUMN
-    sql, bind, IDCOLUMN = generate_sql(request, result, sql, query)
-    if app.config["DEBUG"]: # pragma: no cover
-        if bind:
-            print(sql % bind)
-        else:
-            print(sql)
-    try:
-        if bind:
-            g.c.execute(sql, bind)
-        else:
-            g.c.execute(sql)
-        rows = g.c.fetchall()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    result[container] = []
-    if rows:
-        result[container] = rows
-        result["rest"]["row_count"] = len(rows)
-        result["rest"]["sql_statement"] = g.c.mogrify(sql, bind)
-        return True
-    raise InvalidUsage(f"No rows returned for query {sql}", 404)
-
-
-def show_columns(result, table):
-    ''' Return the columns in a given table/view
-        Keyword arguments:
-          result: result dictionary
-          table: MySQL table
-        Returns:
-          True if successful
-    '''
-    result["columns"] = []
-    try:
-        g.c.execute("SHOW COLUMNS FROM " + table)
-        rows = g.c.fetchall()
-        if rows:
-            result["columns"] = rows
-            result['rest']['row_count'] = len(rows)
-        return True
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-
-
-def get_additional_cv_data(sid):
-    ''' Return CV relationships
-        Keyword arguments:
-          sid: CV ID
-        Returns:
-          fetched CV relationship data
-    '''
-    sid = str(sid)
-    g.c.execute(READ["CVREL"], (sid, sid))
-    cvrel = g.c.fetchall()
-    return cvrel
-
-
-def get_cv_data(result, cvs):
-    ''' Get data for a CV
-        Keyword arguments:
-          result: result dictionary
-          cvs: rows of data from cv table
-        Returns:
-          CV data list
-    '''
-    result["data"] = []
-    try:
-        for col in cvs:
-            tcv = col
-            if ("id" in col) and (not IDCOLUMN):
-                cvrel = get_additional_cv_data(col["id"])
-                tcv["relationships"] = list(cvrel)
-            result['data'].append(tcv)
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-
-
-def get_additional_cv_term_data(sid):
-    ''' Return CV term relationships
-        Keyword arguments:
-          sid: CV term ID
-        Returns:
-          fgetched CV term relationship data
-    '''
-    sid = str(sid)
-    g.c.execute(READ["CVTERMREL"], (sid, sid))
-    cvrel = g.c.fetchall()
-    return cvrel
-
-
-def get_cv_term_data(result, cvterms):
-    ''' Get data for a CV term
-        Keyword arguments:
-          result: result dictionary
-          cvterms: rows of data from cv table
-        Returns:
-          CV term data list
-    '''
-    result["data"] = []
-    try:
-        for col in cvterms:
-            cvterm = col
-            if ("id" in col) and (not IDCOLUMN):
-                cvtermrel = get_additional_cv_term_data(col["id"])
-                cvterm["relationships"] = list(cvtermrel)
-            result["data"].append(cvterm)
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
 
 
 def generate_response(result):
@@ -383,7 +275,25 @@ def get_bird_events(bird):
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    return rows
+    events = ""
+    if rows:
+        header = ['Date', 'Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
+        events = '''
+        <h3>Events</h3>
+        <table id="events" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        events += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr>' + ''.join("<td>%s</td>")*(len(header)-1) \
+                   + '<td style="text-align: center">%s</td></tr>'
+        for row in rows:
+            terminal = apply_color("YES", "red", row["terminal"], "lime", "NO")
+            outcol = [row["event_date"], row["status"], row["nest"], row["location"],
+                      row["user"], row["notes"], terminal]
+            events += template % tuple(outcol)
+        events += "</tbody></table>"
+    return events
 
 
 def get_bird_properties(bird, user, permissions):
@@ -433,26 +343,7 @@ def get_bird_properties(bird, user, permissions):
         if not prop["value"]:
             continue
         bprops.append([prop["type_display"], prop["value"]])
-    rows = get_bird_events(bird["name"])
-    events = ""
-    if rows:
-        header = ['Date', 'Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
-        events = '''
-        <h3>Events</h3>
-        <table id="events" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        events += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr>' + ''.join("<td>%s</td>")*(len(header)-1) \
-                   + '<td style="text-align: center">%s</td></tr>'
-        for row in rows:
-            terminal = apply_color("YES", "red", row["terminal"], "lime", "NO")
-            outcol = [row["event_date"], row["status"], row["nest"], row["location"],
-                      row["user"], row["notes"], terminal]
-            events += template % tuple(outcol)
-        events += "</tbody></table>"
-    return bprops, events
+    return bprops, get_bird_events(bird["name"])
 
 
 def get_record(id_or_name, what="clutch"):
@@ -475,6 +366,92 @@ def get_record(id_or_name, what="clutch"):
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     return result
+
+
+def process_color_search(ipd):
+    ''' Build SQL statement and bind tuple for color search
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    sql = "SELECT * FROM %s_vw WHERE name " % (ipd['key_type'])
+    if ipd['uppercolor']:
+        if ipd['lowercolor']:
+            sql += "REGEXP %s"
+            if ipd['key_type'] == 'bird':
+                term = ipd["uppercolor"] + "[0-9]+" + ipd["lowercolor"] + "[0-9]+$"
+            else:
+                term = ipd["uppercolor"] + ipd["lowercolor"]
+        else:
+            sql += "LIKE %s"
+            term = "%\\_" + ipd["uppercolor"] + "%"
+    elif ipd["lowercolor"]:
+        if ipd['key_type'] == 'bird':
+            sql += "REGEXP %s"
+            term = ipd["lowercolor"] + "[0-9]+$"
+        else:
+            sql += "REGEXP %s"
+            term = ipd["lowercolor"] + "$"
+    sql += " ORDER BY name"
+    return sql, (term)
+
+
+def process_number_search(ipd):
+    ''' Build SQL statement and bind tuple for number search
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    sql = "SELECT * FROM bird_vw WHERE band "
+    if ipd['uppernum']:
+        if ipd['lowernum']:
+            sql += "REGEXP %s"
+            term = ipd["uppernum"] + "[a-z]+" + ipd["lowernum"]
+        else:
+            sql += "REGEXP %s"
+            term = "^[a-z]+" + ipd["uppernum"] + "[a-z]"
+    elif ipd["lowernum"]:
+        sql += "REGEXP %s"
+        term = "[a-z]+" + ipd["lowernum"] + "$"
+    sql += " ORDER BY name"
+    return sql, (term)
+
+
+def get_search_sql(ipd):
+    ''' Build SQL statement and bind tuple for searches
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    if ipd['stype'] == 'sbu':
+        check_missing_parms(ipd, ['claim'])
+        sql = "SELECT * FROM bird_vw WHERE username=%s ORDER BY name"
+        bind = (ipd['claim'])
+    elif ipd['stype'] == 'sbl':
+        check_missing_parms(ipd, ['location'])
+        sql = "SELECT * FROM bird_vw WHERE location=%s ORDER BY name"
+        bind = (ipd['location'])
+    elif ipd['stype'] == 'sbt':
+        check_missing_parms(ipd, ['key_text'])
+        if ipd['key_type'] == 'bird':
+            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        elif ipd['key_type'] == 'clutch':
+            sql = 'SELECT * FROM clutch_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        elif ipd['key_type'] == 'nest':
+            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+    elif ipd['stype'] == 'sbc':
+        sql, bind = process_color_search(ipd)
+    elif ipd['stype'] == 'sbn':
+        sql, bind = process_number_search(ipd)
+    print(sql % bind)
+    return sql, bind
 
 
 def get_birds_in_clutch_or_nest(rec, dnd, ttype):
@@ -543,16 +520,6 @@ def get_clutch_properties(clutch):
     return cprops, birds
 
 
-def strip_time(ddt):
-    ''' Return the date portion of a datetime
-        Keyword arguments:
-          ddt: datetime
-        Returns:
-          String date
-    '''
-    return ddt.strftime("%Y-%m-%d")
-
-
 def get_nest_properties(nest):
     ''' Get a nest's properties
         Keyword arguments:
@@ -586,8 +553,6 @@ def get_nest_properties(nest):
             uses.append(use)
     if uses:
         nprops.append(["Utilization:", ", ".join(uses)])
-    # Bird list
-    birds = get_birds_in_clutch_or_nest(nest, dnd, "nest")
     # Clutch list
     try:
         g.c.execute("SELECT * FROM clutch_vw WHERE nest=%s ORDER BY 1", (nest["name"]))
@@ -606,13 +571,13 @@ def get_nest_properties(nest):
         template = '<tr>' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         for row in rows:
             nname = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
-            outcol = [nname, row['notes'], strip_time(row['clutch_start']),
-                      strip_time(row["clutch_end"])]
+            outcol = [nname, row['notes'], strip_time(row['clutch_early']),
+                      strip_time(row["clutch_late"])]
             clutches += template % tuple(outcol)
         clutches += "</tbody></table>"
     else:
         clutches = "There are no clutches in this nest."
-    return nprops, birds, clutches
+    return nprops, get_birds_in_clutch_or_nest(nest, dnd, "nest"), clutches
 
 
 def bird_summary_query(ipd, user):
@@ -763,10 +728,41 @@ def generate_bird_pulldown(sex, sid):
     return controls
 
 
-def generate_color_pulldown(sid):
+def generate_claim_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all bird claimants
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    sql = "SELECT DISTINCT username FROM bird_vw WHERE username IS NOT NULL " \
+          + "AND username != '' ORDER BY 1"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a claimant...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+                   + 'Select a claimant...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["username"], row["username"])
+    controls += "</select>"
+    return controls
+
+
+def generate_color_pulldown(sid, simple=False):
     ''' Generate pulldown menu of all colors
         Keyword arguments:
           sid: select ID
+          simple: do not use Bootstrap controle
         Returns:
           HTML menu
     '''
@@ -778,8 +774,12 @@ def generate_color_pulldown(sid):
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
-               + 'Select a color...</option>'
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a color...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+                   + 'Select a color...</option>'
     for row in rows:
         controls += '<option value="%s">%s</option>' \
                     % (row["cv_term"], row["cv_term"])
@@ -787,7 +787,35 @@ def generate_color_pulldown(sid):
     return controls
 
 
-def generate_location_pulldown(this_id, item_type=None, current=None):
+def generate_location_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all in-use locations
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    try:
+        g.c.execute(READ["INUSE"])
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a location...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-6"><option value="">' % (sid)\
+                   + 'Select a location...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["name"], row["display_name"])
+    controls += "</select>"
+    return controls
+
+
+def generate_movement_pulldown(this_id, item_type=None, current=None):
     ''' Generate pulldown menu of all locations (except the current one)
         Keyword arguments:
           this_id: bird or nest ID
@@ -1139,7 +1167,7 @@ def generate_navbar(active, permissions=None):
             nav += '</div></li>'
         else:
             nav += basic
-            if heading in ["Searches"]:
+            if heading in ["Clutches", "Searches"]:
                 link = ('/' + heading[:-2] + 'list').lower()
             else:
                 link = ('/' + heading[:-1] + 'list').lower()
@@ -1308,7 +1336,7 @@ def user_list():
         <br>
         <h3>Add a user</h3>
         <div class="form-group">
-          <div class="col-md-3">
+          <div class="col-md-5">
             <label for="Input1">Gmail address</label>
             <input type="text" class="form-control" id="user_name" aria-describedby="usernameHelp" placeholder="Enter Google email address">
             <small id="usernameHelp" class="form-text text-muted">This will be the username.</small>
@@ -1320,7 +1348,7 @@ def user_list():
         Non-HHMI <input type="radio" name="hhmi_radio" value="non_hhmi" onclick="change_usertype('non_hhmi');"/>
         <div id="hhmi" class="hhmidesc">
         <div class="form-group">
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label for="Input2">Janelia ID</label>
             <input type="text" class="form-control" id="janelia_id" aria-describedby="jidHelp" placeholder="Enter Janelia ID">
             <small id="jidHelp" class="form-text text-muted">Enter the Janelia user ID.</small>
@@ -1329,21 +1357,21 @@ def user_list():
         </div>
         <div id="non_hhmi" class="hhmidesc" style="display: none;">
         <div class="form-group">
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label for="Input3">First name</label>
             <input type="text" class="form-control" id="first_name" aria-describedby="jidHelp" placeholder="Enter first name">
             <small id="jidHelp" class="form-text text-muted">Enter the user's first name.</small>
           </div>
         </div>
         <div class="form-group">
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label for="Input3">Last name</label>
             <input type="text" class="form-control" id="last_name" aria-describedby="jidHelp" placeholder="Enter last name">
             <small id="jidHelp" class="form-text text-muted">Enter the user's last name.</small>
           </div>
         </div>
         <div class="form-group">
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label for="Input3">Preferred email</label>
             <input type="text" class="form-control" id="email" aria-describedby="jidHelp" placeholder="Enter preferred email">
             <small id="jidHelp" class="form-text text-muted">Enter the user's preferred email address.</small>
@@ -1387,10 +1415,15 @@ def user_config(uname):
     uprops.append(['Email:', rec['email']])
     uprops.append(['Organization:', rec['organization']])
     ptable = build_permissions_table(user, rec)
+    controls = '<br>'
+    if set(['admin']).intersection(permissions):
+        controls += '''
+        <button type="button" class="btn btn-danger btn-sm" onclick='delete_user();'>Delete user</button>
+        '''
     return render_template('user.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'], user=uname,
                            navbar=generate_navbar('Users', permissions),
-                           uprops=uprops, ptable=ptable)
+                           uprops=uprops, ptable=ptable, controls=controls)
 
 
 @app.route('/logout')
@@ -1487,7 +1520,7 @@ def show_bird(bname):
             nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
             if "No nest" not in nestpull:
                 controls += "Move bird to new nest" + nestpull
-            controls += generate_location_pulldown(bird['id'], "bird", bird['location'])
+            controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
             controls += '''
             <button type="button" class="btn btn-warning btn-sm" onclick='update_bird(%s,"unclaim");'>Unclaim bird</button>
             '''
@@ -1551,32 +1584,7 @@ def show_clutches(): # pylint: disable=R0914,R0912,R0915
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    if rows:
-        header = ['Name', 'Nest', 'Clutch early', 'Clutch late', 'Bird count', 'Notes']
-        clutches = '''
-        <table id="clutches" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['nest'],
-                                       strip_time(row['clutch_early']),
-                                       strip_time(row['clutch_late']), cnt, row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            clutch = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
-            clutches += template % (clutch, nest, strip_time(row['clutch_early']),
-                                    strip_time(row['clutch_late']), cnt, row['notes'])
-        clutches += "</tbody></table>"
-        downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
-        clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                   + 'role="button">Download table</a>' + clutches
-    else:
-        clutches = "There are no clutches"
+    clutches = generate_clutchlist_table(rows)
     if request.method == 'POST':
         return {"clutches": clutches}
     response = make_response(render_template('clutchlist.html', urlroot=request.url_root,
@@ -1681,7 +1689,7 @@ def show_nest(nname):
                                title="Not found", message=f"Nest {nname} was not found")
     controls = '<br>'
     if set(['admin', 'manager']).intersection(permissions):
-        controls += generate_location_pulldown(nest['id'], "nest", nest["location"])
+        controls += generate_movement_pulldown(nest['id'], "nest", nest["location"])
     nprops, birds, clutches = get_nest_properties(nest)
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
@@ -1710,7 +1718,7 @@ def new_nest():
                            start=date.today().strftime("%Y-%m-%d"),
                            color1select=generate_color_pulldown("color1"),
                            color2select=generate_color_pulldown("color2"),
-                           locationselect=generate_location_pulldown(0),
+                           locationselect=generate_movement_pulldown(0),
                            sire1select=generate_bird_pulldown("M", "sire"),
                            damsel1select=generate_bird_pulldown("F", "damsel"),
                            female1select=generate_bird_pulldown("F", "female1"),
@@ -1798,11 +1806,15 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
 def show_search_form():
     ''' Make an assignment for a project
     '''
-    user, face, permissions = get_user_profile()
+    user, face, _ = get_user_profile()
     if not user:
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     return render_template('search.html', urlroot=request.url_root, face=face,
-                           dataset=app.config['DATASET'], navbar=generate_navbar('Bird'))
+                           dataset=app.config['DATASET'], navbar=generate_navbar('Search'),
+                           upperselect=generate_color_pulldown("uppercolor", True),
+                           lowerselect=generate_color_pulldown("lowercolor", True),
+                           claim=generate_claim_pulldown("claim", True),
+                           location=generate_location_pulldown("location", True))
 
 
 @app.route('/run_search', methods=['OPTIONS', 'POST'])
@@ -1815,6 +1827,12 @@ def run_search():
       - Search
     parameters:
       - in: query
+        name: stype
+        schema:
+          type: string
+        required: true
+        description: search type
+      - in: query
         name: key_type
         schema:
           type: string
@@ -1824,8 +1842,20 @@ def run_search():
         name: key_text
         schema:
           type: string
-        required: true
+        required: false
         description: key text
+      - in: query
+        name: uppercolor
+        schema:
+          type: string
+        required: false
+        description: upper band color
+      - in: query
+        name: lowercolor
+        schema:
+          type: string
+        required: false
+        description: lower band color
     responses:
       200:
           description: Database entries
@@ -1834,15 +1864,18 @@ def run_search():
     '''
     result = initialize_result()
     ipd = receive_payload(result)
-    check_missing_parms(ipd, ['key_type', 'key_text'])
+    check_missing_parms(ipd, ['key_type'])
     result["data"] = ""
-    if ipd['key_type'] == 'bird':
-        sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR band LIKE %s ORDER BY name'
-        dbresult = "<h2>Birds</h2>"
-    elif ipd['key_type'] == 'nest':
-        sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR band LIKE %s ORDER BY name'
-        dbresult = "<h2>Nests</h2>"
-    bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+    if ipd['stype'] == 'sbc' and (not ipd['uppercolor']) and (not ipd['lowercolor']):
+        result['data'] = "Missing upper and/or lower band color"
+        return generate_response(result)
+    if ipd['stype'] == 'sbn' and (not ipd['uppernum']) and (not ipd['lowernum']):
+        result['data'] = "Missing upper and/or lower band number"
+        return generate_response(result)
+    if ipd['stype'] == 'sbu' and not ipd['claim']:
+        result['data'] = "Missing claimant"
+        return generate_response(result)
+    sql, bind = get_search_sql(ipd)
     try:
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
@@ -1850,10 +1883,11 @@ def run_search():
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500)
     if ipd['key_type'] == 'bird':
-        dbresult += generate_birdlist_table(rows)
+        result['data'] += "<h2>Birds</h2>" + generate_birdlist_table(rows)
+    elif ipd['key_type'] == 'clutch':
+        result['data'] += "<h2>Clutches</h2>" + generate_clutchlist_table(rows)
     elif ipd['key_type'] == 'nest':
-        dbresult += generate_nestlist_table(rows)
-    result['data'] += dbresult
+        result['data'] += "<h2>Nests</h2>" + generate_nestlist_table(rows)
     return generate_response(result)
 
 
@@ -1958,24 +1992,6 @@ def dbstats():
     return generate_response(result)
 
 
-@app.route('/processlist/columns', methods=['GET'])
-def get_processlist_columns():
-    '''
-    Get columns from the system processlist table
-    Show the columns in the system processlist table, which may be used to
-     filter results for the /processlist endpoints.
-    ---
-    tags:
-      - Diagnostics
-    responses:
-      200:
-          description: Columns in system processlist table
-    '''
-    result = initialize_result()
-    show_columns(result, "information_schema.processlist")
-    return generate_response(result)
-
-
 @app.route('/processlist', methods=['GET'])
 def get_processlist_info():
     '''
@@ -1998,7 +2014,7 @@ def get_processlist_info():
           description: Processlist information not found
     '''
     result = initialize_result()
-    execute_sql(result, 'SELECT * FROM information_schema.processlist', 'data')
+    execute_sql(result, 'SELECT * FROM information_schema.processlist', app.config["DEBUG"])
     for row in result['data']:
         row['HOST'] = 'None' if not row['HOST'] else row['HOST'] #.decode("utf-8")
     return generate_response(result)
@@ -2090,60 +2106,85 @@ def testothererror():
 
 
 # *****************************************************************************
-# * View endpoints                                                            *
+# * Table/view endpoints                                                      *
 # *****************************************************************************
 
-@app.route('/columns/cv_term', methods=['GET'])
-@app.route('/columns/bird', methods=['GET'])
-@app.route('/columns/bird_event', methods=['GET'])
-@app.route('/columns/bird_property', methods=['GET'])
-@app.route('/columns/bird_relationship', methods=['GET'])
-@app.route('/columns/nest', methods=['GET'])
-@app.route('/columns/nest_event', methods=['GET'])
-@app.route('/columns/user', methods=['GET'])
-@app.route('/columns/user_permission', methods=['GET'])
-def get_view_columns():
+
+@app.route('/tables', methods=['GET'])
+def get_tables():
     '''
-    Get columns from a view
-    Show the columns in the bird_vw table, which may be used to filter
-     results for the /birds and /bird_ids endpoints.
+    Get a list of tables
+    Get a list of tables
     ---
     tags:
-      - Bird
+      - Table
+    responses:
+      200:
+          description: list of tables
+    '''
+    result = initialize_result()
+    execute_sql(result, "SHOW TABLES", app.config["DEBUG"])
+    return generate_response(result)
+
+
+@app.route('/columns/<string:table>', methods=['GET'])
+def get_view_columns(table=""):
+    '''
+    Get columns from a view or table
+    Show the columns in a view/table, which may be used to filter results for
+    other endpoints.
+    ---
+    tags:
+      - Table
+    parameters:
+      - in: path
+        name: table
+        schema:
+          type: string
+        required: true
+        description: table or view name
     responses:
       200:
           description: Columns in specified view
     '''
     result = initialize_result()
-    table = re.search("/columns/([^/]+)", request.url, re.IGNORECASE)
-    if table:
-        table = table.group(1)
-    show_columns(result, table + "_vw")
+    view = table + "_vw"
+    if view in app.config["VIEWS"]:
+        table = view
+    if table == "processlist":
+        table = "information_schema.processlist"
+    result["columns"] = []
+    try:
+        g.c.execute("SHOW COLUMNS FROM " + table)
+        rows = g.c.fetchall()
+        if rows:
+            result["columns"] = rows
+            result['rest']['row_count'] = len(rows)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     return generate_response(result)
 
 
-@app.route('/view/cv_term', methods=['GET'])
-@app.route('/view/bird', methods=['GET'])
-@app.route('/view/bird_event', methods=['GET'])
-@app.route('/view/bird_property', methods=['GET'])
-@app.route('/view/bird_relationship', methods=['GET'])
-@app.route('/view/nest', methods=['GET'])
-@app.route('/view/nest_event', methods=['GET'])
-@app.route('/view/user', methods=['GET'])
-@app.route('/view/user_permission', methods=['GET'])
-def get_view_rows():
+@app.route('/view/<string:table>', methods=['GET'])
+def get_view_rows(table=""):
     '''
-    Get view rows (with filtering)
-    Return a list of birds (rows from the bird_vw table). The
-     caller can filter on any of the columns in the bird_vw table.
-     Inequalities (!=) and some relational operations (&lt;= and &gt;=) are
-     supported. Wildcards are supported (use "*"). Specific columns from the
-     bird_vw table can be returned with the _columns key. The returned
-     list may be ordered by specifying a column with the _sort key. In both
-     cases, multiple columns would be separated by a comma.
+    Get view/table rows (with filtering)
+    Return rows from  a specified view/table. The caller can filter on any of the
+    columns in the view/table. Inequalities (!=) and some relational operations
+    (&lt;= and &gt;=) are supported. Wildcards are supported (use "*").
+    Specific columns from the view/table can be returned with the _columns key.
+    The returned list may be ordered by specifying a column with the _sort key.
+    In both cases, multiple columns would be separated by a comma.
     ---
     tags:
-      - Bird
+      - Table
+    parameters:
+      - in: path
+        name: table
+        schema:
+          type: string
+        required: true
+        description: table or view name
     responses:
       200:
           description: rows from specified view
@@ -2151,101 +2192,17 @@ def get_view_rows():
           description: Rows not found
     '''
     result = initialize_result()
-    statement = re.search("/view/([^/]+)$", request.url, re.IGNORECASE)
-    if statement:
-        table = statement.group(1)
-        table = re.sub("[?;].*", "", table)
-    execute_sql(result, f"SELECT * FROM {table}_vw", "data")
+    table = re.sub("[?;].*", "", table)
+    view = table + "_vw"
+    if view in app.config["VIEWS"]:
+        table = view
+    execute_sql(result, f"SELECT * FROM {table}", app.config["DEBUG"])
     return generate_response(result)
 
 
 # *****************************************************************************
 # * CV/CV term endpoints                                                      *
 # *****************************************************************************
-
-@app.route('/cv_ids', methods=['GET'])
-def get_cv_ids():
-    '''
-    Get CV IDs (with filtering)
-    Return a list of CV IDs. The caller can filter on any of the columns in the
-     cv table. Inequalities (!=) and some relational operations (&lt;= and &gt;=)
-     are supported. Wildcards are supported (use "*"). The returned list may be
-     ordered by specifying a column with the _sort key. Multiple columns should
-     be separated by a comma.
-    ---
-    tags:
-      - CV
-    responses:
-      200:
-          description: List of one or more CV IDs
-      404:
-          description: CVs not found
-    '''
-    result = initialize_result()
-    if execute_sql(result, 'SELECT id FROM cv', 'temp'):
-        result['data'] = []
-        for col in result['temp']:
-            result['data'].append(col['id'])
-        del result['temp']
-    return generate_response(result)
-
-
-@app.route('/cvs/<string:sid>', methods=['GET'])
-def get_cv_by_id(sid):
-    '''
-    Get CV information for a given ID
-    Given an ID, return a row from the cv table. Specific columns from the cv
-     table can be returned with the _columns key. Multiple columns should be
-     separated by a comma.
-    ---
-    tags:
-      - CV
-    parameters:
-      - in: path
-        name: sid
-        schema:
-          type: string
-        required: true
-        description: CV ID
-    responses:
-      200:
-          description: Information for one CV
-      404:
-          description: CV ID not found
-    '''
-    result = initialize_result()
-    if execute_sql(result, 'SELECT * FROM cv', 'temp', sid):
-        get_cv_data(result, result['temp'])
-        del result['temp']
-    return generate_response(result)
-
-
-@app.route('/cvs', methods=['GET'])
-def get_cv_info():
-    '''
-    Get CV information (with filtering)
-    Return a list of CVs (rows from the cv table). The caller can filter on
-     any of the columns in the cv table. Inequalities (!=) and some relational
-     operations (&lt;= and &gt;=) are supported. Wildcards are supported
-     (use "*"). Specific columns from the cv table can be returned with the
-     _columns key. The returned list may be ordered by specifying a column with
-     the _sort key. In both cases, multiple columns would be separated by a
-     comma.
-    ---
-    tags:
-      - CV
-    responses:
-      200:
-          description: List of information for one or more CVs
-      404:
-          description: CVs not found
-    '''
-    result = initialize_result()
-    if execute_sql(result, 'SELECT * FROM cv', 'temp'):
-        get_cv_data(result, result['temp'])
-        del result['temp']
-    return generate_response(result)
-
 
 @app.route('/cv', methods=['OPTIONS', 'POST'])
 def add_cv(): # pragma: no cover
@@ -2514,8 +2471,8 @@ def bird_nest(bird_id, nest_id):
 @app.route('/bird/notes/<string:bird_id>', methods=['OPTIONS', 'POST'])
 def bird_notes(bird_id):
     '''
-    Update a bird's sex
-    Update a bird's sex.
+    Update a bird's notes
+    Update a bird's notes.
     ---
     tags:
       - Bird
@@ -3066,8 +3023,8 @@ def register_nest():
         bind = (name, band, ipd["female1_id"], ipd["female2_id"], ipd["female3_id"],
                 ipd["location"], ipd['notes'], ipd["start_date"])
     else:
-        sql = "INSERT INTO nest (name,band,sire_id,damsel_id,breeding,location_id,notes,create_date) " \
-              + "VALUES (%s,%s,%s,%s,1,%s,%s,%s)"
+        sql = "INSERT INTO nest (name,band,sire_id,damsel_id,breeding,location_id,notes," \
+              + "create_date) VALUES (%s,%s,%s,%s,1,%s,%s,%s)"
         bind = (name, band, ipd["sire_id"], ipd["damsel_id"], ipd["location"], ipd['notes'],
                 ipd["start_date"])
     try:
@@ -3093,35 +3050,6 @@ def register_nest():
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
     g.db.commit()
-    return generate_response(result)
-
-
-# *****************************************************************************
-# * Species endpoints                                                         *
-# *****************************************************************************
-
-@app.route('/species', methods=['GET'])
-def get_species_info():
-    '''
-    Get dpecies information (with filtering)
-    Return a list of species (rows from the cv table). The caller can filter on
-     any of the columns in the cv table. Inequalities (!=) and some relational
-     operations (&lt;= and &gt;=) are supported. Wildcards are supported
-     (use "*"). Specific columns from the cv table can be returned with the
-     _columns key. The returned list may be ordered by specifying a column with
-     the _sort key. In both cases, multiple columns would be separated by a
-     comma.
-    ---
-    tags:
-      - Species
-    responses:
-      200:
-          description: List of information for one or more CVs
-      404:
-          description: CVs not found
-    '''
-    result = initialize_result()
-    execute_sql(result, 'SELECT * FROM species', 'data')
     return generate_response(result)
 
 
@@ -3270,6 +3198,49 @@ def add_user(): # pragma: no cover
     return generate_response(result)
 
 
+@app.route('/user', methods=['OPTIONS', 'DELETE'])
+def delete_user(): # pragma: no cover
+    '''
+    Delete user
+    ---
+    tags:
+      - User
+    parameters:
+      - in: query
+        name: name
+        schema:
+          type: string
+        required: true
+        description: User name (gmail address)
+    responses:
+      200:
+          description: User deleted
+      400:
+          description: Missing or incorrect arguments
+    '''
+    result = initialize_result()
+    ipd = receive_payload(result)
+    check_missing_parms(ipd, ['name'])
+    if not check_permission(result['rest']['user'], 'admin'):
+        raise InvalidUsage("You don't have permission to delete a user")
+    result['rest']['row_count'] = 0
+    user_id = get_user_id(ipd['name'])
+    sql = 'DELETE FROM user_permission WHERE user_id=%s'
+    try:
+        g.c.execute(sql % (user_id))
+        result['rest']['row_count'] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    sql = 'DELETE FROM user WHERE id=%s'
+    try:
+        g.c.execute(sql % (user_id))
+        result['rest']['row_count'] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    g.db.commit()
+    return generate_response(result)
+
+
 @app.route('/user_permissions', methods=['OPTIONS', 'POST'])
 def add_user_permission(): # pragma: no cover
     '''
@@ -3360,5 +3331,5 @@ def delete_user_permission(): # pragma: no cover
 
 
 if __name__ == '__main__':
-    app.run(ssl_context="adhoc", debug=True)
-    #app.run(debug=True)
+    #app.run(ssl_context="adhoc", debug=True)
+    app.run(debug=True)

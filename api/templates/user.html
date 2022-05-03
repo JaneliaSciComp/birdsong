@@ -2,6 +2,31 @@
 {% block script %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script>
+function delete_user() {
+  url = '/user'
+  token = $.cookie('birdsong-token')
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'DELETE',
+      dataType: 'json',
+      data: JSON.stringify({"name": $('#user').val()}),
+      contentType:'application/json',
+      success: function(result) {
+        alert("This user been deleted");
+        window.location.href = "/userlist"
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+
 function changebox(cb) {
    permission = cb.id;
   $('#user').val();
@@ -47,6 +72,8 @@ function changebox(cb) {
   {% endfor %}
   </tbody>
   </table>
+  {{controls|safe}}
+  <br>
   <form>
   <div class="form-control-lg">
   {{ptable|safe}}

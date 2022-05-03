@@ -12,6 +12,21 @@
   z-index: 5
 }
 
+.fbrow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-bottom: 5px;
+}
+
+.fbcol {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  flex: 1;
+}
+
 table.standard {
   border-collapse: collapse;
   font-size: 11pt;

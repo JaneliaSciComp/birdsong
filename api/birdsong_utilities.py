@@ -7,7 +7,7 @@ import random
 import re
 import string
 from urllib.parse import parse_qs
-from flask import g
+from flask import g, request
 import requests
 
 CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
@@ -174,18 +174,167 @@ def create_downloadable(name, header, template, content):
     return fname
 
 
-def generate_sql(request, result, sql, query=False):
-    ''' Generate a SQL statement and tuple of associated bind variables.
+def generate_birdlist_table(rows, showall=True):
+    ''' Given rows from bird_vw, return an HTML table
         Keyword arguments:
-          request: API request
+          rows: rows from database search
+          showall: show all birds
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
+                  'Current age', 'Alive']
+        if showall:
+            header.insert(3, "Claimed by")
+        birds = '''
+        <table id="birds" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            outcol = [row['name'], row['band'], row['nest'], row['location'],
+                      row['sex'], row['notes'], row['current_age'], row['alive']]
+            if showall:
+                outcol.insert(3, row["username"])
+            fileoutput += ftemplate % tuple(outcol)
+            rclass = 'alive' if row['alive'] else 'dead'
+            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
+            if not row['alive']:
+                row['current_age'] = '-'
+            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
+                      row['notes'], row['current_age'], alive]
+            if showall:
+                outcol.insert(4, row["username"])
+            birds += template % tuple(outcol)
+        birds += "</tbody></table>"
+        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
+        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
+                % (downloadable) + 'role="button">Download table</a>' + birds
+    else:
+        birds = "No birds were found"
+    return birds
+
+
+def generate_clutchlist_table(rows):
+    ''' Given rows from clutch_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Nest', 'Clutch early', 'Clutch late', 'Bird count', 'Notes']
+        clutches = '''
+        <table id="clutches" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['nest'],
+                                       strip_time(row['clutch_early']),
+                                       strip_time(row['clutch_late']), cnt, row['notes'])
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            clutch = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
+            clutches += template % (clutch, nest, strip_time(row['clutch_early']),
+                                    strip_time(row['clutch_late']), cnt, row['notes'])
+        clutches += "</tbody></table>"
+        downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
+        clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                   + 'role="button">Download table</a>' + clutches
+    else:
+        clutches = "No clutches were found"
+    return clutches
+
+
+def generate_nestlist_table(rows):
+    ''' Given rows from nest_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
+        nests = '''
+        <table id="nests" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
+                                       row['damsel'], cnt, row['location'], row['notes'])
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
+            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
+            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
+            nests += template % (nest, row['band'], sire, damsel,
+                                 cnt, row['location'], row['notes'])
+        nests += "</tbody></table>"
+        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
+        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                 + 'role="button">Download table</a>' + nests
+    else:
+        nests = "No nests were found"
+    return nests
+
+
+def execute_sql(result, sql, debug, container="data"):
+    ''' Build and execute a SQL statement.
+        Keyword arguments:
           result: result dictionary
           sql: base SQL statement
-          query: uses "id" column if true
+          debug:: debug flag
+          container: name of dictionary in result disctionary to return rows
+        Returns:
+          True if successful
+    '''
+    sql, bind = generate_sql(result, sql)
+    if debug: # pragma: no cover
+        if bind:
+            print(sql % bind)
+        else:
+            print(sql)
+    try:
+        if bind:
+            g.c.execute(sql, bind)
+        else:
+            g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    result[container] = []
+    if rows:
+        result[container] = rows
+        result["rest"]["row_count"] = len(rows)
+        result["rest"]["sql_statement"] = g.c.mogrify(sql, bind)
+        return True
+    raise InvalidUsage(f"No rows returned for query {sql}", 404)
+
+
+def generate_sql(result, sql):
+    ''' Generate a SQL statement and tuple of associated bind variables.
+        Keyword arguments:
+          result: result dictionary
+          sql: base SQL statement
     '''
     bind = ()
-    # pylint: disable=W0603
-    idcolumn = 0
-    query_string = 'id='+str(query) if query else request.query_string
+    query_string = request.query_string
     order = ''
     if query_string:
         if not isinstance(query_string, str):
@@ -197,9 +346,6 @@ def generate_sql(request, result, sql, query=False):
                 order = ' ORDER BY ' + val[0]
             elif key == '_columns':
                 sql = sql.replace('*', val[0])
-                varr = val[0].split(',')
-                if 'id' in varr:
-                    idcolumn = 1
             elif key == '_distinct':
                 if 'DISTINCT' not in sql:
                     sql = sql.replace('SELECT', 'SELECT DISTINCT')
@@ -211,7 +357,7 @@ def generate_sql(request, result, sql, query=False):
         result['rest']['sql_statement'] = sql % bind
     else:
         result['rest']['sql_statement'] = sql
-    return sql, bind, idcolumn
+    return sql, bind
 
 
 def get_banding(ipd):
@@ -274,7 +420,7 @@ def get_banding_and_location(ipd):
         color1 = color[nest["band"][0:2]]
         color2 = color[nest["band"][-2:]]
         name = "".join([ipd["start_date"].replace("-", ""), "_", color1, barr[0],
-                       color2, barr[1]])
+                        color2, barr[1]])
         band.append({"name": name, "band": nband})
     return band, nest, loc_id
 
@@ -329,20 +475,6 @@ def get_user_by_name(uname):
     return row
 
 
-def get_workday(janelia_id):
-    ''' Given a Janelia ID, return the Workday record
-        Keyword arguments:
-          janelia_id: Janelia ID
-        Returns:
-          Workday record
-    '''
-    data = call_responder('config', 'config/workday/' + janelia_id)
-    if not data:
-        raise InvalidUsage('User %s not found in Workday' % (janelia_id))
-    work = data['config']
-    return work
-
-
 def random_string(strlen=8):
     ''' Generate a random string of letters and digits
         Keyword arguments:
@@ -365,6 +497,16 @@ def sql_error(err):
     if error_msg:
         print(error_msg)
     return error_msg
+
+
+def strip_time(ddt):
+    ''' Return the date portion of a datetime
+        Keyword arguments:
+          ddt: datetime
+        Returns:
+          String date
+    '''
+    return ddt.strftime("%Y-%m-%d")
 
 
 def update_property(pid, table, name, value):
@@ -401,87 +543,3 @@ def validate_user(user):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500)
     return bool(usr)
-
-
-def generate_birdlist_table(rows, showall=True):
-    ''' Given rows from bird_vw, return an HTML table
-        Keyword arguments:
-          rows: rows from database search
-          showall: show all birds
-        Returns:
-          HTML table
-    '''
-    header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
-              'Current age', 'Alive']
-    if showall:
-        header.insert(3, "Claimed by")
-    if rows:
-        birds = '''
-        <table id="birds" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            outcol = [row['name'], row['band'], row['nest'], row['location'],
-                      row['sex'], row['notes'], row['current_age'], row['alive']]
-            if showall:
-                outcol.insert(3, row["username"])
-            fileoutput += ftemplate % tuple(outcol)
-            rclass = 'alive' if row['alive'] else 'dead'
-            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
-            if not row['alive']:
-                row['current_age'] = '-'
-            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
-                      row['notes'], row['current_age'], alive]
-            if showall:
-                outcol.insert(4, row["username"])
-            birds += template % tuple(outcol)
-        birds += "</tbody></table>"
-        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
-        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
-                % (downloadable) + 'role="button">Download table</a>' + birds
-    else:
-        birds = "No birds were found"
-    return birds
-
-
-def generate_nestlist_table(rows):
-    ''' Given rows from nest_vw, return an HTML table
-        Keyword arguments:
-          rows: rows from database search
-        Returns:
-          HTML table
-    '''
-    if rows:
-        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
-        nests = '''
-        <table id="nests" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
-                                       row['damsel'], cnt, row['location'], row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
-            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
-            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
-            nests += template % (nest, row['band'], sire, damsel,
-                                 cnt, row['location'], row['notes'])
-        nests += "</tbody></table>"
-        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
-        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                 + 'role="button">Download table</a>' + nests
-    else:
-        nests = "No nests were found"
-    return nests

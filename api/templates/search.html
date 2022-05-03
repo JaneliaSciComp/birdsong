@@ -2,10 +2,24 @@
 {% block script %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script>
-function run_search() {
-  array = {"key_type": $('#key_type').val(),
-           "key_text": $('#key_text').val()};
-  token = $.cookie('assignment-manager-token')
+
+function run_search(which) {
+  if (which == 'sbc') {
+    ktype = $('#key_type2').val();
+  }
+  else {
+    ktype = $('#key_type').val();
+  }
+  array = {"stype": which,
+           "key_type": ktype,
+           "key_text": $('#key_text').val(),
+           "claim": $('#claim').val(),
+           "location": $('#location').val(),
+           "uppercolor": $('#uppercolor').val(),
+           "lowercolor": $('#lowercolor').val(),
+           "uppernum": $('#uppernum').val(),
+           "lowernum": $('#lowernum').val()};
+  token = $.cookie('birdsong-token');
   $.ajax({
       url: '/run_search',
       headers: {"Authorization": 'Bearer ' + token },
@@ -32,16 +46,87 @@ function run_search() {
 {% block content %}
   <h2>Search</h2>
   <br>
-  <div>
-  Search for
-  <select id="key_type">
-    <option value="body" SELECTED>Body ID</option>
-    <option value="xyz">X_Y_Z coordinates</option>
-    <option value="task_id">Task ID</option>
+  Search by
+  <select class="search_type">
+    <option value="sbc" SELECTED>Band color</option>
+    <option value="sbn">Band number</option>
+    <option value="sbu">Claimed by</option>
+    <option value="sbl">Location</option>
+    <option value="sbt">Free text</option>
   </select>
-  <input id='key_text'>
+  <br><br>
+<script>
+$(".search_type").change(function() {
+  $("#sbc").addClass('d-none');
+  $("#sbl").addClass('d-none');
+  $("#sbn").addClass('d-none');
+  $("#sbt").addClass('d-none');
+  $("#sbu").addClass('d-none');
+  $("#" + $(this).val()).removeClass('d-none');
+});
+</script>
+  <div style="margin-left:50px" width="100%">
+    <div id="sbt" class="d-none">
+      <h4>Free text</h4>
+      Search for text
+      <input id='key_text'>
+      in <i>name</i> and <i>notes</i> in
+      <select id="key_type">
+        <option value="bird" SELECTED>birds</option>
+        <option value="clutch">clutches</option>
+        <option value="nest">nests</option>
+      </select>
+      <br><br>
+      <div style="text-align:center">
+        <button type="button" class="btn btn-success btn-sm" onclick='run_search("sbt");'>Search</button>
+      </div>
+    </div>
+    <div id="sbl" class="d-none">
+      <h4>Located in</h4>
+      Search for birds located in {{location|safe}}
+      <br><br>
+      <div style="text-align:center">
+        <button type="button" class="btn btn-success btn-sm" onclick='run_search("sbl");'>Search</button>
+      </div>
+    </div>
+    <div id="sbu" class="d-none">
+      <h4>Claimed by</h4>
+      Search for birds claimed by {{claim|safe}}
+      <br><br>
+      <div style="text-align:center">
+        <button type="button" class="btn btn-success btn-sm" onclick='run_search("sbu");'>Search</button>
+      </div>
+    </div>
+    <div id="sbc">
+      <h4>Band colors</h4>
+      Search for
+      <select id="key_type2">
+        <option value="bird" SELECTED>birds</option>
+        <option value="clutch">clutches</option>
+        <option value="nest">nests</option>
+      </select>
+      with upper band color
+      {{upperselect|safe}}
+      and/or lower band color
+      {{lowerselect|safe}}
+      <br><br>
+      <div style="text-align:center">
+        <button type="button" class="btn btn-success btn-sm" onclick='run_search("sbc");'>Search</button>
+      </div>
+    </div>
+    <div id="sbn" class="d-none">
+      <h4>Band numbers</h4>
+      Search for birds with upper band #
+      <input type="text" id="uppernum" size="3em"/>
+      and/or lower band #
+      <input type="text" id="lowernum" size="3em"/>
+      <br><br>
+      <div style="text-align:center">
+        <button id="sbn" type="button" class="btn btn-success btn-sm" onclick='run_search("sbn");'>Search</button>
+      </div>
+    </div>
   </div>
   <br>
-  <button id="sb" type="button" class="btn btn-success btn-sm" onclick='run_search();'>Search</button>
+  <hr style="background-color:#eee">
   <div id='search_content'></div>
 {% endblock %}
