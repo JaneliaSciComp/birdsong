@@ -197,13 +197,16 @@ def generate_birdlist_table(rows, showall=True):
         fileoutput = ''
         ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
+            for col in ("nest", "notes", "username"):
+                if not row[col]:
+                    row[col] = ""
             outcol = [row['name'], row['band'], row['nest'], row['location'],
                       row['sex'], row['notes'], row['current_age'], row['alive']]
             if showall:
                 outcol.insert(3, row["username"])
             fileoutput += ftemplate % tuple(outcol)
             rclass = 'alive' if row['alive'] else 'dead'
-            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
+            bird = colorband(row['name'], '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2))
             if not row['alive']:
                 row['current_age'] = '-'
             alive = apply_color("YES", "lime", row["alive"], "red", "NO")
@@ -220,6 +223,33 @@ def generate_birdlist_table(rows, showall=True):
     else:
         birds = "No birds were found"
     return birds
+
+
+def colorband(name, text=None, big=False):
+    ''' Create a bands color display
+        Keyword arguments:
+          name: bird, clutch, or nest name
+          text: optional text to display
+        Returns:
+          HTML
+    '''
+    html = '<div class="bands">'
+    bclass = "band"
+    if big:
+        bclass += " bigband"
+    name = re.sub(".+_", "", name)
+    if re.search("\d", name):
+        cols = re.findall("[a-z]+", name)
+        for col in cols:
+            html += '<div class="%s %s"></div>' % (bclass, col)
+    else:
+        cols = re.finditer(r"black|blue|brown|green|orange|pink|purple|red|tut|white|yellow", name)
+        for col in cols:
+            html += '<div class="%s %s"></div>' % (bclass, col.group())
+    if text:
+        html += '&nbsp;<div class="flexcol">%s</div>' % (text,)
+    html += '</div>'
+    return html
 
 
 def generate_clutchlist_table(rows):
@@ -246,7 +276,7 @@ def generate_clutchlist_table(rows):
                                        strip_time(row['clutch_early']),
                                        strip_time(row['clutch_late']), cnt, row['notes'])
             nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            clutch = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
+            clutch = colorband(row['name'], '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2))
             clutches += template % (clutch, nest, strip_time(row['clutch_early']),
                                     strip_time(row['clutch_late']), cnt, row['notes'])
         clutches += "</tbody></table>"
@@ -280,7 +310,7 @@ def generate_nestlist_table(rows):
             cnt = get_clutch_or_nest_count(row["id"])
             fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
                                        row['damsel'], cnt, row['location'], row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2)
+            nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))
             sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
             damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
             nests += template % (nest, row['band'], sire, damsel,
@@ -380,6 +410,22 @@ def get_banding(ipd):
     name = "".join([ipd["start_date"].replace("-", ""), "_", ipd["color1"], ipd["color2"]])
     band = color[ipd["color1"]] + color[ipd["color2"]]
     return name, band
+
+
+def get_cv_terms(ccv):
+    ''' Get CV terms for a given CV
+        Keyword arguments:
+          ccv: cv
+        Returns:
+          list of CV term rows
+    '''
+    try:
+        g.c.execute("SELECT id,cv_term,display_name,definition FROM cv_term_vw " \
+                    + "WHERE cv=%s ORDER BY 1", (ccv))
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return rows
 
 
 def get_banding_and_location(ipd):
