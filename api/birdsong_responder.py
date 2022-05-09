@@ -25,35 +25,6 @@ from oauthlib.oauth2 import WebApplicationClient
 import birdsong_utilities
 from birdsong_utilities import *
 
-# SQL statements
-READ = {
-    'BSUMMARY': "SELECT * FROM bird_vw ORDER BY name DESC",
-    'CSUMMARY': "SELECT * FROM clutch_vw ORDER BY name DESC",
-    'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
-             + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
-             + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
-    'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
-                + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
-                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3,4",
-    'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
-}
-WRITE = {
-    'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,"
-                   + "user_id,notes,alive,hatch_early,hatch_late) VALUES "
-                   + "(%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s)",
-    'INSERT_CV': "INSERT INTO cv (name,definition,display_name,version,"
-                 + "is_current) VALUES (%s,%s,%s,%s,%s)",
-    'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
-                     + ",is_current,data_type) VALUES (getCvId(%s,''),%s,%s,"
-                     + "%s,%s,%s)",
-    'INSERT_UPERM': "INSERT INTO user_permission (user_id,permission_id) VALUES "
-                    + "(%s,getCvTermId('permission','%s','')) "
-                    + "ON DUPLICATE KEY UPDATE permission_id=permission_id",
-    'INSERT_USER': "INSERT INTO user (name,first,last,janelia_id,email,organization) "
-                   + "VALUES (%s,%s,%s,%s,%s,%s)",
-}
-
-
 # pylint: disable=C0302,C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
@@ -687,82 +658,6 @@ def add_user_permissions(result, user, permissions):
             raise InvalidUsage(sql_error(err), 500) from err
 
 
-def generate_bird_pulldown(sex, sid):
-    ''' Generate pulldown menu of all live birds of a particular sex
-        Keyword arguments:
-          sex: sex
-          sid: select ID
-          use: nest use (breeding or fostering)
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    # Exclusions
-    sql = "SELECT * FROM nest_vw"
-    try:
-        g.c.execute(sql)
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    exclude = {}
-    for row in rows:
-        for rname in ["sire", "damsel", "female1", "female2", "female3"]:
-            if row[rname]:
-                exclude[row[rname]] = 1
-    # Birds
-    sql = "SELECT id,name FROM bird where sex='%s' AND alive=1 ORDER BY 2" % (sex)
-    try:
-        g.c.execute(sql)
-        irows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    rows = []
-    for row in irows:
-        if row["name"] not in exclude:
-            rows.append(row)
-    if not rows:
-        return '<span style="color:red">No birds available</span>'
-    controls = '<select id="%s" class="form-control col-sm-8"><option value="">' % (sid)\
-               + 'Select a bird...</option>'
-    for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["id"], row["name"])
-    controls += "</select>"
-    return controls
-
-
-def generate_claim_pulldown(sid, simple=False):
-    ''' Generate pulldown menu of all bird claimants
-        Keyword arguments:
-          sid: select ID
-          simple: do not use Bootstrap controle
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    sql = "SELECT DISTINCT username FROM bird_vw WHERE username IS NOT NULL " \
-          + "ORDER BY 1"
-    try:
-        g.c.execute(sql)
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
-                   + 'Select a claimant...</option>'
-    else:
-        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
-                   + 'Select a claimant...</option>'
-    for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["username"], row["username"])
-    controls += "</select>"
-    return controls
-
-
 def generate_bird_event(bid):
     ''' Generate a bird event input box
         Keyword arguments:
@@ -801,147 +696,6 @@ def generate_bird_event(bid):
                </div>
                '''
     controls = controls % (pulldown, date.today().strftime("%Y-%m-%d"), bid)
-    return controls
-
-
-def generate_color_pulldown(sid, simple=False):
-    ''' Generate pulldown menu of all colors
-        Keyword arguments:
-          sid: select ID
-          simple: do not use Bootstrap controle
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    rows = get_cv_terms('color')
-    if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
-                   + 'Select a color...</option>'
-    else:
-        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
-                   + 'Select a color...</option>'
-    for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["cv_term"], row["cv_term"])
-    controls += "</select>"
-    return controls
-
-
-def generate_location_pulldown(sid, simple=False):
-    ''' Generate pulldown menu of all in-use locations
-        Keyword arguments:
-          sid: select ID
-          simple: do not use Bootstrap controle
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    try:
-        g.c.execute(READ["INUSE"])
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
-                   + 'Select a location...</option>'
-    else:
-        controls = '<select id="%s" class="form-control col-sm-6"><option value="">' % (sid)\
-                   + 'Select a location...</option>'
-    for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["name"], row["display_name"])
-    controls += "</select>"
-    return controls
-
-
-def generate_movement_pulldown(this_id, item_type=None, current=None):
-    ''' Generate pulldown menu of all locations (except the current one)
-        Keyword arguments:
-          this_id: bird or nest ID
-          item_type: type of item to move (bird, nest)
-          current: current location
-        Returns:
-          HTML menu
-    '''
-    controls = ""
-    rows = get_cv_terms('location')
-    if this_id:
-        controls = "Move %s to new location" % ("nest" if item_type != "bird" else "bird")
-    controls += '<select id="location" class="form-control col-sm-8" onchange="select_location(' \
-                + str(this_id) + ',this);"><option value="">Select a new location...</option>'
-    for row in rows:
-        if row["display_name"] == current:
-            continue
-        controls += '<option value="%s">%s</option>' \
-                    % (row['id'], row['display_name'])
-    controls += "</select><br>"
-    return controls
-
-
-def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
-    ''' Generate pulldown menu of all nests (with conditions)
-        Keyword arguments:
-          ntype: nest type
-          clutch_id: clutch ID or current_nest ID
-        Returns:
-          HTML menu
-    '''
-    sql = "SELECT id,name FROM nest WHERE active=1 AND "
-    clause = []
-    if 'breeding' in ntype:
-        clause.append("(sire_id IS NOT NULL AND damsel_id IS NOT NULL AND breeding=1)")
-    if 'fostering' in ntype:
-        clause.append("(fostering=1)")
-    sql += " OR ".join(clause) + " ORDER BY 2"
-    try:
-        g.c.execute(sql)
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    if not rows:
-        return '<span style="color:red">No nests available</span>'
-    if clutch_or_nest_id:
-        controls = '<select id="nest" onchange="select_nest(' + str(clutch_or_nest_id) \
-                   + ',this);" class="form-control col-sm-8"><option value="">' \
-                   + 'Select a new nest...</option>'
-    else:
-        controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
-                   + 'Select a nest...</option>'
-    for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row['id'], row['name'])
-    controls += "</select><br><br>"
-    return controls
-
-
-def generate_notes_field(this_id):
-    ''' Generate notes field
-        Keyword arguments:
-          this_id: bird ID
-        Returns:
-          HTML menu
-    '''
-    controls = '<input type="text" id="notes" onchange="add_notes(' + str(this_id) \
-               + ',this);" class="form-control"/>'
-    return controls
-
-
-def generate_sex_pulldown(this_id):
-    ''' Generate pulldown menu for sex
-        Keyword arguments:
-          this_id: bird ID
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    controls += '<select id="sex" class="form-control col-sm-8" onchange="select_sex(' \
-                + str(this_id) + ',this);"><option value="">Select a sex...</option>'
-    for sex in ["M", "F"]:
-        controls += '<option value="%s">%s</option>' \
-                    % (sex, sex)
-    controls += "</select>"
     return controls
 
 
@@ -1572,8 +1326,7 @@ def show_bird(bname):
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message="User %s is not registered" % user)
     try:
-        g.c.execute("SELECT * FROM bird_vw WHERE name=%s", (bname,))
-        bird = g.c.fetchone()
+        bird = get_record(bname, "bird")
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
@@ -1589,11 +1342,15 @@ def show_bird(bname):
     controls = '<br>'
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
         if bird["user"] == user:
-            nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
-            if "No nest" not in nestpull:
-                controls += "Move bird to new nest" + nestpull
-            controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
-            controls += generate_bird_event(bird['id'])
+            try:
+                nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
+                if "No nest" not in nestpull:
+                    controls += "Move bird to new nest" + nestpull
+                controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
+                controls += generate_bird_event(bird['id'])
+            except Exception as err:
+                return render_template("error.html", urlroot=request.url_root,
+                                       title="SQL error", message=sql_error(err))
         elif not bird["user"]:
             controls += '''
             <button type="button" class="btn btn-success btn-sm" onclick='update_bird(%s,"claim");'>Claim bird</button>
@@ -1754,7 +1511,11 @@ def show_nest(nname):
                                title="Not found", message=f"Nest {nname} was not found")
     controls = '<br>'
     if set(['admin', 'manager']).intersection(permissions):
-        controls += generate_movement_pulldown(nest['id'], "nest", nest["location"])
+        try:
+            controls += generate_movement_pulldown(nest['id'], "nest", nest["location"])
+        except Exception as err:
+            return render_template("error.html", urlroot=request.url_root,
+                                   title="SQL error", message=sql_error(err))
     nprops, birds, clutches = get_nest_properties(nest)
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
@@ -1777,18 +1538,22 @@ def new_nest():
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
                                message="You don't have permission to register a new nest")
-    return render_template('newnest.html', urlroot=request.url_root, face=face,
-                           dataset=app.config['DATASET'],
-                           navbar=generate_navbar('Nests', permissions),
-                           start=date.today().strftime("%Y-%m-%d"),
-                           color1select=generate_color_pulldown("color1"),
-                           color2select=generate_color_pulldown("color2"),
-                           locationselect=generate_movement_pulldown(0),
-                           sire1select=generate_bird_pulldown("M", "sire"),
-                           damsel1select=generate_bird_pulldown("F", "damsel"),
-                           female1select=generate_bird_pulldown("F", "female1"),
-                           female2select=generate_bird_pulldown("F", "female2"),
-                           female3select=generate_bird_pulldown("F", "female3"))
+    try:
+        return render_template('newnest.html', urlroot=request.url_root, face=face,
+                               dataset=app.config['DATASET'],
+                               navbar=generate_navbar('Nests', permissions),
+                               start=date.today().strftime("%Y-%m-%d"),
+                               color1select=generate_color_pulldown("color1"),
+                               color2select=generate_color_pulldown("color2"),
+                               locationselect=generate_movement_pulldown(0),
+                               sire1select=generate_bird_pulldown("M", "sire"),
+                               damsel1select=generate_bird_pulldown("F", "damsel"),
+                               female1select=generate_bird_pulldown("F", "female1"),
+                               female2select=generate_bird_pulldown("F", "female2"),
+                               female3select=generate_bird_pulldown("F", "female3"))
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
 
 
 @app.route('/locationlist', methods=['GET', 'POST'])
@@ -1874,13 +1639,16 @@ def show_search_form():
     user, face, _ = get_user_profile()
     if not user:
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
-    return render_template('search.html', urlroot=request.url_root, face=face,
-                           dataset=app.config['DATASET'], navbar=generate_navbar('Search'),
-                           upperselect=generate_color_pulldown("uppercolor", True),
-                           lowerselect=generate_color_pulldown("lowercolor", True),
-                           claim=generate_claim_pulldown("claim", True),
-                           location=generate_location_pulldown("location", True))
-
+    try:
+        return render_template('search.html', urlroot=request.url_root, face=face,
+                               dataset=app.config['DATASET'], navbar=generate_navbar('Search'),
+                               upperselect=generate_color_pulldown("uppercolor", True),
+                               lowerselect=generate_color_pulldown("lowercolor", True),
+                               claim=generate_claim_pulldown("claim", True),
+                               location=generate_location_pulldown("location", True))
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
 
 @app.route('/run_search', methods=['OPTIONS', 'POST'])
 def run_search():

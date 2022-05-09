@@ -14,6 +14,33 @@ CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
 BEARER = ""
 KEY_TYPE_IDS = {}
 
+# SQL statements
+READ = {
+    'BSUMMARY': "SELECT * FROM bird_vw ORDER BY name DESC",
+    'CSUMMARY': "SELECT * FROM clutch_vw ORDER BY name DESC",
+    'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
+             + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
+             + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
+    'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
+                + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
+                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3,4",
+    'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
+}
+WRITE = {
+    'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,"
+                   + "user_id,notes,alive,hatch_early,hatch_late) VALUES "
+                   + "(%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s)",
+    'INSERT_CV': "INSERT INTO cv (name,definition,display_name,version,"
+                 + "is_current) VALUES (%s,%s,%s,%s,%s)",
+    'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
+                     + ",is_current,data_type) VALUES (getCvId(%s,''),%s,%s,"
+                     + "%s,%s,%s)",
+    'INSERT_UPERM': "INSERT INTO user_permission (user_id,permission_id) VALUES "
+                    + "(%s,getCvTermId('permission','%s','')) "
+                    + "ON DUPLICATE KEY UPDATE permission_id=permission_id",
+    'INSERT_USER': "INSERT INTO user (name,first,last,janelia_id,email,organization) "
+                   + "VALUES (%s,%s,%s,%s,%s,%s)",
+}
 # *****************************************************************************
 # * Classes                                                                   *
 # *****************************************************************************
@@ -38,8 +65,224 @@ class InvalidUsage(Exception):
 
 
 # *****************************************************************************
+# * Pulldown generators                                                       *
+# *****************************************************************************
+
+def generate_bird_pulldown(sex, sid):
+    ''' Generate pulldown menu of all live birds of a particular sex
+        Keyword arguments:
+          sex: sex
+          sid: select ID
+          use: nest use (breeding or fostering)
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    # Exclusions
+    sql = "SELECT * FROM nest_vw"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise err
+    exclude = {}
+    for row in rows:
+        for rname in ["sire", "damsel", "female1", "female2", "female3"]:
+            if row[rname]:
+                exclude[row[rname]] = 1
+    # Birds
+    sql = "SELECT id,name FROM bird where sex='%s' AND alive=1 ORDER BY 2" % (sex)
+    try:
+        g.c.execute(sql)
+        irows = g.c.fetchall()
+    except Exception as err:
+        raise err
+    rows = []
+    for row in irows:
+        if row["name"] not in exclude:
+            rows.append(row)
+    if not rows:
+        return '<span style="color:red">No birds available</span>'
+    controls = '<select id="%s" class="form-control col-sm-8"><option value="">' % (sid)\
+               + 'Select a bird...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["id"], row["name"])
+    controls += "</select>"
+    return controls
+
+
+def generate_claim_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all bird claimants
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    sql = "SELECT DISTINCT username FROM bird_vw WHERE username IS NOT NULL " \
+          + "ORDER BY 1"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise err
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a claimant...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+                   + 'Select a claimant...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["username"], row["username"])
+    controls += "</select>"
+    return controls
+
+
+def generate_color_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all colors
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    rows = get_cv_terms('color')
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a color...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+                   + 'Select a color...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["cv_term"], row["cv_term"])
+    controls += "</select>"
+    return controls
+
+
+def generate_location_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all in-use locations
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    try:
+        g.c.execute(READ["INUSE"])
+        rows = g.c.fetchall()
+    except Exception as err:
+        return err
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a location...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-6"><option value="">' % (sid)\
+                   + 'Select a location...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["name"], row["display_name"])
+    controls += "</select>"
+    return controls
+
+
+def generate_movement_pulldown(this_id, item_type=None, current=None):
+    ''' Generate pulldown menu of all locations (except the current one)
+        Keyword arguments:
+          this_id: bird or nest ID
+          item_type: type of item to move (bird, nest)
+          current: current location
+        Returns:
+          HTML menu
+    '''
+    controls = ""
+    rows = get_cv_terms('location')
+    if this_id:
+        controls = "Move %s to new location" % ("nest" if item_type != "bird" else "bird")
+    controls += '<select id="location" class="form-control col-sm-8" onchange="select_location(' \
+                + str(this_id) + ',this);"><option value="">Select a new location...</option>'
+    for row in rows:
+        if row["display_name"] == current:
+            continue
+        controls += '<option value="%s">%s</option>' \
+                    % (row['id'], row['display_name'])
+    controls += "</select><br>"
+    return controls
+
+
+def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
+    ''' Generate pulldown menu of all nests (with conditions)
+        Keyword arguments:
+          ntype: nest type
+          clutch_id: clutch ID or current_nest ID
+        Returns:
+          HTML menu
+    '''
+    sql = "SELECT id,name FROM nest WHERE active=1 AND "
+    clause = []
+    if 'breeding' in ntype:
+        clause.append("(sire_id IS NOT NULL AND damsel_id IS NOT NULL AND breeding=1)")
+    if 'fostering' in ntype:
+        clause.append("(fostering=1)")
+    sql += " OR ".join(clause) + " ORDER BY 2"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        return err
+    if not rows:
+        return '<span style="color:red">No nests available</span>'
+    if clutch_or_nest_id:
+        controls = '<select id="nest" onchange="select_nest(' + str(clutch_or_nest_id) \
+                   + ',this);" class="form-control col-sm-8"><option value="">' \
+                   + 'Select a new nest...</option>'
+    else:
+        controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
+                   + 'Select a nest...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row['id'], row['name'])
+    controls += "</select><br><br>"
+    return controls
+
+
+def generate_notes_field(this_id):
+    ''' Generate notes field
+        Keyword arguments:
+          this_id: bird ID
+        Returns:
+          HTML menu
+    '''
+    controls = '<input type="text" id="notes" onchange="add_notes(' + str(this_id) \
+               + ',this);" class="form-control"/>'
+    return controls
+
+
+def generate_sex_pulldown(this_id):
+    ''' Generate pulldown menu for sex
+        Keyword arguments:
+          this_id: bird ID
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    controls += '<select id="sex" class="form-control col-sm-8" onchange="select_sex(' \
+                + str(this_id) + ',this);"><option value="">Select a sex...</option>'
+    for sex in ["M", "F"]:
+        controls += '<option value="%s">%s</option>' \
+                    % (sex, sex)
+    controls += "</select>"
+    return controls
+
+# *****************************************************************************
 # * Functions                                                                 *
 # *****************************************************************************
+
 def add_key_value_pair(key, val, separator, sql, bind):
     ''' Add a key/value pair to the WHERE clause of a SQL statement
         Keyword arguments:
