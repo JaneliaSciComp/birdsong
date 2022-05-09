@@ -68,7 +68,8 @@ $('select').selectpicker();
 </script>
 {% endblock %}
 {% block content %}
-  <h2>Register a new bird</h2>
+  <h1>Orphaned</h1>
+  <h2>Register a new bird to a nest</h2>
   <br>
   <h4>Required parameters:</h4>
   <div style='float: left;margin:10px 0 15px 0;'>
@@ -99,5 +100,5 @@ $('select').selectpicker();
     <div class="grid-item"><input id="notes" size=30 onchange=""></div>
   </div>
   <br>
-  <button type="submit" id="sb" class="btn btn-primary" onclick="register_bird();" href="#">Register bird</button>
+  <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_bird();" href="#">Register bird</button>
 {% endblock %}

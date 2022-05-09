@@ -13,7 +13,7 @@ function delete_user() {
       data: JSON.stringify({"name": $('#user').val()}),
       contentType:'application/json',
       success: function(result) {
-        alert("This user been deleted");
+        alert("This user has been deleted");
         window.location.href = "/userlist"
       },
       error: function (xhr, ajaxOptions, thrownError) {
@@ -72,7 +72,6 @@ function changebox(cb) {
   {% endfor %}
   </tbody>
   </table>
-  {{controls|safe}}
   <br>
   <form>
   <div class="form-control-lg">
@@ -80,4 +79,6 @@ function changebox(cb) {
   </div>
   <input type=hidden id="user" value={{user}}>
   </form>
+  <br><br></br><br>
+  {{controls|safe}}
 {% endblock %}

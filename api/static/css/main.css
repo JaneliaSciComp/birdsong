@@ -12,12 +12,17 @@
   z-index: 5
 }
 
+.eventadd{
+  margin-left: 10px;
+  border: 3px solid #00a350;
+  border-radius: 30px;
+}
+
 .fbrow {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   width: 100%;
-  padding-bottom: 5px;
 }
 
 .fbcol {
@@ -68,6 +73,32 @@ table.standard {
 
 .flexcol {
   flex: 50%;
+}
+
+/* Bands */
+.bands {
+  display: flex;
+}
+
+.band {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, .5);
+}
+.black { background: #000; }
+.blue { background: #00f; }
+.brown { background: #8b4513; }
+.green { background: #0f0; }
+.orange { background: #ffa500; }
+.pink { background: #ffc0cb; }
+.purple { background: #a020f0; }
+.red { background: #f00; }
+.tut { background: #fafad2; }
+.white { background: #fff; }
+.yellow { background: #ff0; }
+.bigband {
+  width: 50px;
+  height: 50px;
 }
 
 /* Bootstrap */

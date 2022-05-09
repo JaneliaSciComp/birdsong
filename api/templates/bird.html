@@ -84,6 +84,49 @@ function select_sex(bird, sel) {
   });
 }
 
+function fix_event() {
+  if (jQuery.inArray(bevent.value, ["died", "euthanized"]) >= 0) {
+    $('#terminal').prop('checked', true);
+  }
+  else if (jQuery.inArray(bevent.value, ["procedure", "surgery"]) == -1) {
+    $('#terminal').prop('checked', false);
+  }
+}
+
+function add_event(bird) {
+  if (!bevent.value) {
+    alert("You must select an event");
+    return;
+  }
+  url = '/bird/event/' + bird;
+  token = $.cookie('birdsong-token');
+  fix_event();
+  arr = {"event": bevent.value,
+         "terminal": $('#terminal').is(':checked') ? 1 : 0,
+         "notes": enotes.value,
+         "date": $('#edate').val()};
+  $.ajax({
+      url: url,
+      headers: {"Authorization": 'Bearer ' + token },
+      type: 'POST',
+      dataType: 'json',
+      data: JSON.stringify(arr),
+      contentType:'application/json',
+      success: function(result) {
+        alert("Added event for bird");
+        window.location.href = window.location.pathname
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+        if (xhr.status == 401) {
+          alert("You are not authenticated");
+        }
+        else {
+          alert(xhr.status + ': ' + thrownError + "\n" + xhr.responseText);
+        }
+      }
+  });
+}
+
 function add_notes(bird, sel) {
   selected = sel.value
   url = '/bird/notes/' + bird

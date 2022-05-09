@@ -72,7 +72,7 @@ function register_clutch() {
     contentType:'application/json',
     success: function(result) {
       alert("A new clutch has been registered");
-      window.location.href = window.location.pathname;
+      window.location.href = "/clutchlist";
     },
     error: function(xhr, ajaxOptions, thrownError, dataType) {
       if (xhr.status == 401) {

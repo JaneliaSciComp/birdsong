@@ -6,6 +6,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
 <script>
+function enable_add() {
+  $("#sb").prop("disabled",false);
+}
+
 function change_usertype(ut) {
   $("div.hhmidesc").hide();
   $("#" + ut).show();

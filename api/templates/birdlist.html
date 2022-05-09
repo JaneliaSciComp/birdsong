@@ -8,22 +8,30 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
 <script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
 <script>
-function show_all() {
-  $(".alive").show();
-  $(".dead").show();
-  $('#hd').removeAttr("disabled");
-  $('#ha').removeAttr("disabled");
-}
 function get_birds()
 {
   token = $.cookie('birdsong-token')
-  if ($('#start').val() > $('#stop').val()) {
+  if ($('#stop').val() && ($('#start').val() > $('#stop').val())) {
     alert("Hatch early must be <= hatch late");
     return False;
   }
+  if ($('#which').val() != 'all') {
+    $('#dead').prop('checked', false);
+  }
   array = {"start_date": $('#start').val(),
            "stop_date": $('#stop').val(),
-           "which": $('#which').val()}
+           "which": $('#which').val(),
+           "alive": 0,
+           "dead": 0}
+  if (!$('#alive').is(":checked") && !$('#dead').is(":checked")) {
+    $('#alive').prop('checked', true);
+  }
+  if ($('#alive').is(":checked")) {
+    array["alive"] = 1;
+  }
+  if ($('#dead').is(":checked")) {
+    array["dead"] = 1;
+  }
   $.ajax({
     url: '/birdlist',
     headers: {"Authorization": 'Bearer ' + token },
@@ -77,12 +85,6 @@ onload="tableInitialize();"
   </script>
   <div style='clear:both'></div>
   <hr>
-  <div>
-  <button type="button" class="btn btn-primary btn-sm" onclick='show_all();'>Show all</button>
-  <button id="hd" type="button" class="btn btn-primary btn-sm" onclick='$(".dead").hide(); $("#hd").attr("disabled", true);'>Hide dead birds</button>
-  <button id="ha" type="button" class="btn btn-primary btn-sm" onclick='$(".alive").hide(); $("#ha").attr("disabled", true);'>Hide live birds</button>
-  </div>
-  <br>
   <div id="container">
   {{ birds|safe }}
   </div>

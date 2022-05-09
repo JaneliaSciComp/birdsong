@@ -73,6 +73,7 @@ function register_nest() {
     contentType:'application/json',
     success: function(result) {
       alert("A new nest has been registered")
+      window.location.href = "/nestlist";
     },
     error: function(xhr, ajaxOptions, thrownError, dataType) {
       if (xhr.status == 401) {
@@ -135,5 +136,5 @@ $('select').selectpicker();
     <div class="grid-item"><input id="notes" size=30 onchange=""></div>
   </div>
   <br>
-  <button type="submit" id="sb" class="btn btn-primary" onclick="register_nest();" href="#">Register nest</button>
+  <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_nest();" href="#">Register nest</button>
 {% endblock %}
