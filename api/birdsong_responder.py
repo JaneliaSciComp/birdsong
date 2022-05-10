@@ -1051,6 +1051,54 @@ def show_bird(bname):
                            bird=bname, bprops=bprops, events=events, controls=controls)
 
 
+@app.route('/birds/location/<string:location>', methods=['GET'])
+def birds_in_location(location):
+    '''
+    Search the database
+    Search by key text.
+    ---
+    tags:
+      - Search
+    parameters:
+      - in: path
+        name: location
+        schema:
+          type: string
+        required: true
+        description: location
+    responses:
+      200:
+          description: Database entries
+      500:
+          description: Error
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message="User %s is not registered" % user)
+    result = initialize_result()
+    ipd = receive_payload(result)
+    ipd["stype"] = "sbl"
+    ipd["location"] = location
+    result["data"] = ""
+    print(ipd)
+    sql, bind = get_search_sql(ipd)
+    if app.config['DEBUG']:
+        print(sql % bind)
+    try:
+        g.c.execute(sql, bind)
+        rows = g.c.fetchall()
+        result['rest']['sql_statement'] = g.c.mogrify(sql, bind)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return render_template('birdloc.html', urlroot=request.url_root, face=face,
+                           dataset=app.config['DATASET'],
+                           navbar=generate_navbar('Birds', permissions),
+                           location=location, birdloc=generate_birdlist_table(rows))
+
+
 @app.route('/newbird')
 def add_bird():
     ''' Register a new bird
@@ -1279,6 +1327,8 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
         for row in rows:
             fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'])
+            if row["cnt"]:
+                row["cnt"] = '<a href="/birds/location/%s">%s</a>' % (row['display_name'], row['cnt'])
             delcol = ""
             if row['cnt'] == 0:
                 delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
