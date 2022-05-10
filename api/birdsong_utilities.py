@@ -3,12 +3,15 @@
 '''
 
 from datetime import datetime
+import inspect
 import random
 import re
 import string
 from urllib.parse import parse_qs
 from flask import g, request
 import requests
+
+# pylint: disable=C0209, C0302, W0703
 
 CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
 BEARER = ""
@@ -101,7 +104,7 @@ def colorband(name, text=None, big=False):
     if big:
         bclass += " bigband"
     name = re.sub(".+_", "", name)
-    if re.search("\d", name):
+    if re.search(r"\d", name):
         cols = re.findall("[a-z]+", name)
         for col in cols:
             html += '<div class="%s %s"></div>' % (bclass, col)
@@ -327,7 +330,7 @@ def generate_bird_pulldown(sex, sid):
         g.c.execute(sql)
         rows = g.c.fetchall()
     except Exception as err:
-        raise err
+        raise InvalidUsage(sql_error(err), 500) from err
     exclude = {}
     for row in rows:
         for rname in ["sire", "damsel", "female1", "female2", "female3"]:
@@ -339,7 +342,7 @@ def generate_bird_pulldown(sex, sid):
         g.c.execute(sql)
         irows = g.c.fetchall()
     except Exception as err:
-        raise err
+        raise InvalidUsage(sql_error(err), 500) from err
     rows = []
     for row in irows:
         if row["name"] not in exclude:
@@ -370,7 +373,7 @@ def generate_claim_pulldown(sid, simple=False):
         g.c.execute(sql)
         rows = g.c.fetchall()
     except Exception as err:
-        raise err
+        raise InvalidUsage(sql_error(err), 500) from err
     if simple:
         controls = '<select id="%s"><option value="">' % (sid)\
                    + 'Select a claimant...</option>'
@@ -522,9 +525,116 @@ def generate_sex_pulldown(this_id):
     controls += "</select>"
     return controls
 
+
+def generate_which_pulldown():
+    ''' Return a pulldown menu to select bird claimant
+        Keyword arguments:
+          None
+        Returns:
+          HTML
+    '''
+    return '''
+    <div style='float: left;margin-left: 15px;'>
+      <div class="flexrow">
+        <div class="flexcol">
+          Birds to show:
+        </div>
+        <div class="flexcol">
+          <select id="which" onclick="get_birds();">
+            <option value="mine" selected>Claimed by me</option>
+            <option value="eligible">Claimed by me or unclaimed</option>
+            <option value="unclaimed">Unclaimed birds only</option>
+            <option value="all">All birds</option>
+          </select>
+        </div>
+      </div>
+      <div class="flexrow">
+        <div class="flexcol"></div>
+        <div class="flexcol">
+          <label>Alive</label>
+          <input type="checkbox" id="alive" checked onchange="get_birds();">
+          &nbsp;
+          <label>Dead</label>
+          <input type="checkbox" id="dead" onchange="get_birds();">
+        </div>
+      </div>
+    </div>
+    '''
+
+
+# *****************************************************************************
+# * Payload functions                                                         *
+# *****************************************************************************
+
+def receive_payload(result):
+    ''' Get a request payload (form or JSON).
+        Keyword arguments:
+          result: result dictionary
+        Returns:
+          payload dictionary
+    '''
+    pay = {}
+    if not request.get_data():
+        return pay
+    try:
+        if request.form:
+            result["rest"]["form"] = request.form
+            for itm in request.form:
+                pay[itm] = request.form[itm]
+        elif request.json:
+            result["rest"]["json"] = request.json
+            pay = request.json
+    except Exception as err:
+        temp = "{2}: An exception of type {0} occurred. Arguments:\n{1!r}"
+        mess = temp.format(type(err).__name__, err.args, inspect.stack()[0][3])
+        raise InvalidUsage(mess, 500) from err
+    return pay
+
+
+def check_missing_parms(ipd, required):
+    ''' Check for missing parameters
+        Keyword arguments:
+          ipd: request payload
+          required: list of required parameters
+    '''
+    missing = ""
+    for prm in required:
+        if prm not in ipd:
+            missing = missing + prm + " "
+    if missing:
+        raise InvalidUsage("Missing arguments: " + missing)
+
+
 # *****************************************************************************
 # * Verification/validation functions                                         *
 # *****************************************************************************
+
+def build_permissions_table(calling_user, user):
+    ''' Generate a user permission table.
+        Keyword arguments:
+          caslling_user: calling user
+          user: user instance
+    '''
+    permissions = user["permissions"].split(",") if user["permissions"] else []
+    template = '<tr><td style="width:300px">%s</td><td style="text-align: center">%s</td></tr>'
+    rows = get_cv_terms('permission')
+    # Permissions
+    parray = []
+    disabled = "" if check_permission(calling_user, ["admin"]) else "disabled"
+    for row in rows:
+        perm = row["cv_term"]
+        display = row["display_name"]
+        val = 'checked="checked"' if perm in permissions else ''
+        check = '<input type="checkbox" %s id="%s" %s onchange="changebox(this);">' \
+                % (val, row["cv_term"], disabled)
+        if row["cv_term"] in permissions:
+            permissions.remove(row["cv_term"])
+        parray.append(template % (display, check))
+    ptable = '<table><thead><tr style="color:#069"><th>Permission</th>' \
+             + '<th>Enabled</th></tr></thead><tbody>' \
+             + ''.join(parray) + '</tbody></table>'
+    return ptable
+
 
 def check_dates(ipd):
     ''' Ensure that start/stop dates are in sequence
@@ -553,7 +663,7 @@ def check_permission(user, permission=None):
             g.c.execute(stmt, (user))
             rows = g.c.fetchall()
         except Exception as err:
-            raise InvalidUsage(sql_error(err), 500)
+            raise InvalidUsage(sql_error(err), 500) from err
         perm = [row['permission'] for row in rows]
         return perm
     if type(permission).__name__ == 'str':
@@ -565,10 +675,25 @@ def check_permission(user, permission=None):
             g.c.execute(stmt, bind)
             row = g.c.fetchone()
         except Exception as err:
-            raise InvalidUsage(sql_error(err), 500)
+            raise InvalidUsage(sql_error(err), 500) from err
         if row:
             return True
     return False
+
+
+def get_user_id(user):
+    ''' Get a user's ID from the "user" table
+        Keyword arguments:
+          user: user
+    '''
+    try:
+        g.c.execute("SELECT id FROM user WHERE name='%s'" % user)
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if not row or "id" not in row:
+        raise InvalidUsage(f"User {user} was not found", 404)
+    return row['id']
 
 
 def validate_user(user):
@@ -583,8 +708,97 @@ def validate_user(user):
         g.c.execute(stmt, (user, user))
         usr = g.c.fetchone()
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
+        raise InvalidUsage(sql_error(err), 500) from err
     return bool(usr)
+
+
+# *****************************************************************************
+# * Database search functions                                                 *
+# *****************************************************************************
+
+def process_color_search(ipd):
+    ''' Build SQL statement and bind tuple for color search
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    sql = "SELECT * FROM %s_vw WHERE name " % (ipd['key_type'])
+    if ipd['uppercolor']:
+        if ipd['lowercolor']:
+            sql += "REGEXP %s"
+            if ipd['key_type'] == 'bird':
+                term = ipd["uppercolor"] + "[0-9]+" + ipd["lowercolor"] + "[0-9]+$"
+            else:
+                term = ipd["uppercolor"] + ipd["lowercolor"]
+        else:
+            sql += "LIKE %s"
+            term = "%\\_" + ipd["uppercolor"] + "%"
+    elif ipd["lowercolor"]:
+        if ipd['key_type'] == 'bird':
+            sql += "REGEXP %s"
+            term = ipd["lowercolor"] + "[0-9]+$"
+        else:
+            sql += "REGEXP %s"
+            term = ipd["lowercolor"] + "$"
+    sql += " ORDER BY name"
+    return sql, (term)
+
+
+def process_number_search(ipd):
+    ''' Build SQL statement and bind tuple for number search
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    sql = "SELECT * FROM bird_vw WHERE band "
+    if ipd['uppernum']:
+        if ipd['lowernum']:
+            sql += "REGEXP %s"
+            term = ipd["uppernum"] + "[a-z]+" + ipd["lowernum"]
+        else:
+            sql += "REGEXP %s"
+            term = "^[a-z]+" + ipd["uppernum"] + "[a-z]"
+    elif ipd["lowernum"]:
+        sql += "REGEXP %s"
+        term = "[a-z]+" + ipd["lowernum"] + "$"
+    sql += " ORDER BY name"
+    return sql, (term)
+
+
+def get_search_sql(ipd):
+    ''' Build SQL statement and bind tuple for searches
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          sql: SQL statement
+          bind: bind tuple
+    '''
+    if ipd['stype'] == 'sbu':
+        check_missing_parms(ipd, ['claim'])
+        sql = "SELECT * FROM bird_vw WHERE username=%s ORDER BY name"
+        bind = (ipd['claim'])
+    elif ipd['stype'] == 'sbl':
+        check_missing_parms(ipd, ['location'])
+        sql = "SELECT * FROM bird_vw WHERE location=%s ORDER BY name"
+        bind = (ipd['location'])
+    elif ipd['stype'] == 'sbt':
+        check_missing_parms(ipd, ['key_text'])
+        if ipd['key_type'] == 'bird':
+            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        elif ipd['key_type'] == 'clutch':
+            sql = 'SELECT * FROM clutch_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        elif ipd['key_type'] == 'nest':
+            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+    elif ipd['stype'] == 'sbc':
+        sql, bind = process_color_search(ipd)
+    elif ipd['stype'] == 'sbn':
+        sql, bind = process_number_search(ipd)
+    return sql, bind
 
 
 # *****************************************************************************
@@ -620,6 +834,65 @@ def add_key_value_pair(key, val, separator, sql, bind):
         sql += separator + ' ' + key + eprefix + '=%s'
     bind = bind + (val,)
     return sql, bind
+
+
+def bird_summary_query(ipd, user):
+    ''' Build a bird summary query
+        Keyword arguments:
+          ipd: request payload
+          user: user
+        Returns:
+          SQL query
+    '''
+    sql = READ["BSUMMARY"]
+    clause = []
+    if "start_date" in ipd and ipd["start_date"] and "stop_date" in ipd and ipd["stop_date"]:
+        clause.append((" ('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
+                       + "('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late))")
+                      % (ipd['start_date'], ipd["stop_date"]))
+    elif "start_date" in ipd and ipd["start_date"]:
+        clause.append(" (DATE(hatch_early) >= '%s' OR DATE(hatch_late) >= '%s')"
+                      % tuple([ipd['start_date']]*2))
+    elif "stop_date" in ipd and ipd["stop_date"]:
+        clause.append(" (DATE(hatch_early) <= '%s' OR DATE(hatch_late) <= '%s')"
+                      % tuple([ipd["stop_date"]]*2))
+    if "which" in ipd:
+        if ipd["which"] == "mine":
+            clause.append(" user='%s'" % user)
+        elif ipd["which"] == "eligible":
+            clause.append(" (user='%s' OR user IS NULL)" % user)
+        elif ipd["which"] == "unclaimed":
+            clause.append(" user IS NULL")
+    if "alive" in ipd and "dead" in ipd and not (ipd["alive"] and ipd["dead"]):
+        if not ipd["alive"]:
+            clause.append(" NOT alive")
+        elif not ipd["dead"]:
+            clause.append(" alive")
+    if clause:
+        where = ' AND '.join(clause)
+        sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
+    return sql
+
+
+def clutch_summary_query(ipd):
+    ''' Build a clutch summary query
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          SQL query
+    '''
+    sql = READ["CSUMMARY"]
+    clause = []
+    if "start_date" in ipd and ipd["start_date"]:
+        clause.append(" (DATE(clutch_start) >= '%s' OR DATE(clutch_end) >= '%s')"
+                      % tuple([ipd['start_date']]*2))
+    if "stop_date" in ipd and ipd["stop_date"]:
+        clause.append(" (DATE(clutch_start) <= '%s' OR DATE(clutch_end) >= '%s')"
+                      % tuple([ipd["stop_date"]]*2))
+    if clause:
+        where = ' AND '.join(clause)
+        sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
+    return sql
 
 
 def execute_sql(result, sql, debug, container="data"):
@@ -717,7 +990,7 @@ def get_clutch_or_nest_count(cnid, which="clutch"):
         g.c.execute(sql)
         rows = g.c.fetchall()
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
+        raise InvalidUsage(sql_error(err), 500) from err
     return rows[0]["cnt"]
 
 
@@ -733,10 +1006,31 @@ def get_key_type_id(key_type):
             g.c.execute("SELECT id,cv_term FROM cv_term_vw WHERE cv='key'")
             cv_terms = g.c.fetchall()
         except Exception as err:
-            raise InvalidUsage(sql_error(err), 500)
+            raise InvalidUsage(sql_error(err), 500) from err
         for term in cv_terms:
             KEY_TYPE_IDS[term['cv_term']] = term['id']
     return KEY_TYPE_IDS[key_type]
+
+
+def get_record(id_or_name, what="clutch"):
+    ''' Get a clutch record
+        Keyword arguments:
+          id_or_name: clutch ID or name
+          what: bird, clutch, or nest
+        Returns:
+          Record
+    '''
+    sql = f"SELECT * FROM {what}_vw WHERE "
+    if id_or_name.isnumeric():
+        sql += "id=%s"
+    else:
+        sql += "name=%s"
+    try:
+        g.c.execute(sql, (id_or_name))
+        result = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return result
 
 
 def get_user_by_name(uname):
@@ -750,8 +1044,27 @@ def get_user_by_name(uname):
         g.c.execute("SELECT * FROM user_vw WHERE name='%s'" % uname)
         row = g.c.fetchone()
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
+        raise InvalidUsage(sql_error(err), 500) from err
     return row
+
+
+def nest_summary_query(ipd):
+    ''' Build a nest summary query
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          SQL query
+    '''
+    sql = READ["NSUMMARY"]
+    clause = []
+    if "start_date" in ipd and ipd["start_date"]:
+        clause.append(" DATE(create_date) >= '%s'" % ipd['start_date'])
+    if "stop_date" in ipd and ipd["stop_date"]:
+        clause.append(" DATE(create_date) <= '%s'" % ipd['stop_date'])
+    if clause:
+        where = " AND ".join(clause)
+        sql = sql.replace("ORDER BY", "WHERE " + where + " ORDER BY")
+    return sql
 
 
 def sql_error(err):
@@ -786,7 +1099,7 @@ def update_property(pid, table, name, value):
     try:
         g.c.execute(stmt, bind)
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
+        raise InvalidUsage(sql_error(err), 500) from err
 
 
 # *****************************************************************************
@@ -806,7 +1119,7 @@ def call_responder(server, endpoint):
         req = requests.get(url)
     except requests.exceptions.RequestException as err:
         print(err)
-        raise err
+        raise InvalidUsage(sql_error(err), 500) from err
     if req.status_code == 200:
         return req.json()
     print("Could not get response from %s: %s" % (url, req.text))

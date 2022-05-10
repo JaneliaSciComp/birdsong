@@ -25,12 +25,12 @@ from oauthlib.oauth2 import WebApplicationClient
 import birdsong_utilities
 from birdsong_utilities import *
 
-# pylint: disable=C0302,C0103, W0703
+# pylint: disable=C0209, C0302, C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, obj1):   # pylint: disable=E0202, W0221
+    def default(self, obj1):   # pylint: disable=E0202, W0221, W0237
         try:
             if isinstance(obj1, datetime):
                 return obj1.strftime("%a, %-d %b %Y %H:%M:%S")
@@ -46,6 +46,7 @@ class CustomJSONEncoder(JSONEncoder):
         else:
             return list(iterable)
         return JSONEncoder.default(self, obj1)
+
 
 __version__ = "0.0.1"
 app = Flask(__name__, template_folder="templates")
@@ -94,7 +95,7 @@ def before_request():
     ''' Set transaction start time and increment counters.
         If needed, initilize global variables.
     '''
-    # pylint: disable=W0603
+    # pylint: disable=W0603, E0237
     global START_TIME
     g.db = CONN
     g.c = CURSOR
@@ -111,6 +112,17 @@ def before_request():
 # ******************************************************************************
 # * Utility functions                                                          *
 # ******************************************************************************
+
+@app.errorhandler(InvalidUsage)
+def handle_invalid_usage(error):
+    ''' Error handler
+        Keyword arguments:
+          error: error object
+    '''
+    response = jsonify(error.to_dict())
+    response.status_code = error.status_code
+    return response
+
 
 def decode_token(token):
     ''' Decode a given JWT token
@@ -155,8 +167,11 @@ def initialize_result():
             if not dtok or "email" not in dtok:
                 raise InvalidUsage("Invalid token used for authorization", 401)
             authuser = dtok["email"]
-            if not get_user_id(authuser):
-                raise InvalidUsage(f"User {authuser} is not known to the Birdsong system")
+            try:
+                if not get_user_id(authuser):
+                    raise InvalidUsage(f"User {authuser} is not known to the Birdsong system")
+            except Exception as err:
+                raise InvalidUsage(sql_error(err), 500) from err
             app.config["AUTHORIZED"][token] = authuser
         result["rest"]["user"] = authuser
         app.config["USERS"][authuser] = app.config["USERS"].get(authuser, 0) + 1
@@ -181,45 +196,6 @@ def generate_response(result):
     return jsonify(**result)
 
 
-def receive_payload(result):
-    ''' Get a request payload (form or JSON).
-        Keyword arguments:
-          result: result dictionary
-        Returns:
-          payload dictionary
-    '''
-    pay = {}
-    if not request.get_data():
-        return pay
-    try:
-        if request.form:
-            result["rest"]["form"] = request.form
-            for itm in request.form:
-                pay[itm] = request.form[itm]
-        elif request.json:
-            result["rest"]["json"] = request.json
-            pay = request.json
-    except Exception as err:
-        temp = "{2}: An exception of type {0} occurred. Arguments:\n{1!r}"
-        mess = temp.format(type(err).__name__, err.args, inspect.stack()[0][3])
-        raise InvalidUsage(mess, 500) from err
-    return pay
-
-
-def check_missing_parms(ipd, required):
-    ''' Check for missing parameters
-        Keyword arguments:
-          ipd: request payload
-          required: list of required parameters
-    '''
-    missing = ""
-    for prm in required:
-        if prm not in ipd:
-            missing = missing + prm + " "
-    if missing:
-        raise InvalidUsage("Missing arguments: " + missing)
-
-
 def get_bird_events(bird):
     ''' Get a bird's events
         Keyword arguments:
@@ -230,8 +206,7 @@ def get_bird_events(bird):
         g.c.execute("SELECT * FROM bird_event_vw WHERE name=%s ORDER BY event_date", (bird,))
         rows = g.c.fetchall()
     except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
+        raise err
     events = ""
     if rows:
         header = ['Date', 'Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
@@ -268,6 +243,7 @@ def get_bird_properties(bird, user, permissions):
     bprops = []
     bprops.append(["Name:", colorband(bird["name"], bird["name"])])
     bprops.append(["Band:", bird["band"]])
+    bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
     bprops.append(["Nest:", '<a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
     bprops.append(["Location:", bird['location']])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
@@ -304,116 +280,10 @@ def get_bird_properties(bird, user, permissions):
         if not prop["value"]:
             continue
         bprops.append([prop["type_display"], prop["value"]])
-    return bprops, get_bird_events(bird["name"])
-
-
-def get_record(id_or_name, what="clutch"):
-    ''' Get a clutch record
-        Keyword arguments:
-          id_or_name: clutch ID or name
-          what: bird, clutch, or nest
-        Returns:
-          Record
-    '''
-    sql = f"SELECT * FROM {what}_vw WHERE "
-    if id_or_name.isnumeric():
-        sql += "id=%s"
-    else:
-        sql += "name=%s"
     try:
-        g.c.execute(sql, (id_or_name))
-        result = g.c.fetchone()
+        return bprops, get_bird_events(bird["name"])
     except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    return result
-
-
-def process_color_search(ipd):
-    ''' Build SQL statement and bind tuple for color search
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          sql: SQL statement
-          bind: bind tuple
-    '''
-    sql = "SELECT * FROM %s_vw WHERE name " % (ipd['key_type'])
-    if ipd['uppercolor']:
-        if ipd['lowercolor']:
-            sql += "REGEXP %s"
-            if ipd['key_type'] == 'bird':
-                term = ipd["uppercolor"] + "[0-9]+" + ipd["lowercolor"] + "[0-9]+$"
-            else:
-                term = ipd["uppercolor"] + ipd["lowercolor"]
-        else:
-            sql += "LIKE %s"
-            term = "%\\_" + ipd["uppercolor"] + "%"
-    elif ipd["lowercolor"]:
-        if ipd['key_type'] == 'bird':
-            sql += "REGEXP %s"
-            term = ipd["lowercolor"] + "[0-9]+$"
-        else:
-            sql += "REGEXP %s"
-            term = ipd["lowercolor"] + "$"
-    sql += " ORDER BY name"
-    return sql, (term)
-
-
-def process_number_search(ipd):
-    ''' Build SQL statement and bind tuple for number search
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          sql: SQL statement
-          bind: bind tuple
-    '''
-    sql = "SELECT * FROM bird_vw WHERE band "
-    if ipd['uppernum']:
-        if ipd['lowernum']:
-            sql += "REGEXP %s"
-            term = ipd["uppernum"] + "[a-z]+" + ipd["lowernum"]
-        else:
-            sql += "REGEXP %s"
-            term = "^[a-z]+" + ipd["uppernum"] + "[a-z]"
-    elif ipd["lowernum"]:
-        sql += "REGEXP %s"
-        term = "[a-z]+" + ipd["lowernum"] + "$"
-    sql += " ORDER BY name"
-    return sql, (term)
-
-
-def get_search_sql(ipd):
-    ''' Build SQL statement and bind tuple for searches
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          sql: SQL statement
-          bind: bind tuple
-    '''
-    if ipd['stype'] == 'sbu':
-        check_missing_parms(ipd, ['claim'])
-        sql = "SELECT * FROM bird_vw WHERE username=%s ORDER BY name"
-        bind = (ipd['claim'])
-    elif ipd['stype'] == 'sbl':
-        check_missing_parms(ipd, ['location'])
-        sql = "SELECT * FROM bird_vw WHERE location=%s ORDER BY name"
-        bind = (ipd['location'])
-    elif ipd['stype'] == 'sbt':
-        check_missing_parms(ipd, ['key_text'])
-        if ipd['key_type'] == 'bird':
-            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
-        elif ipd['key_type'] == 'clutch':
-            sql = 'SELECT * FROM clutch_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
-        elif ipd['key_type'] == 'nest':
-            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
-        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
-    elif ipd['stype'] == 'sbc':
-        sql, bind = process_color_search(ipd)
-    elif ipd['stype'] == 'sbn':
-        sql, bind = process_number_search(ipd)
-    if app.config['DEBUG']:
-        print(sql % bind)
-    return sql, bind
+        raise err
 
 
 def get_birds_in_clutch_or_nest(rec, dnd, ttype):
@@ -439,7 +309,7 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
             continue
         rows.append(row)
     if rows:
-        header = ['Name', 'Band', 'Location', 'Sex', 'Notes',
+        header = ['Name', 'Band', 'Claimed by', 'Location', 'Sex', 'Notes',
                   'Current age', 'Alive']
         birds = "<h3>Additional birds in nest</h3>" if ttype == "nest" \
                 else "<h3>Birds in clutch</h3>"
@@ -451,12 +321,15 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
         birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
         template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         for row in rows:
+            for col in ("notes", "username"):
+                if not row[col]:
+                    row[col] = ""
             rclass = 'alive' if row['alive'] else 'dead'
             bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
             if not row['alive']:
                 row['current_age'] = '-'
             alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            outcol = [rclass, bird, row['band'], row['location'], row['sex'],
+            outcol = [rclass, bird, row['band'], row["username"], row['location'], row['sex'],
                       row['notes'], row['current_age'], alive]
             birds += template % tuple(outcol)
         birds += "</tbody></table>"
@@ -544,103 +417,6 @@ def get_nest_properties(nest):
     return nprops, get_birds_in_clutch_or_nest(nest, dnd, "nest"), clutches
 
 
-def bird_summary_query(ipd, user):
-    ''' Build a bird summary query
-        Keyword arguments:
-          ipd: request payload
-          user: user
-        Returns:
-          SQL query
-    '''
-    sql = READ["BSUMMARY"]
-    clause = []
-    if "start_date" in ipd and ipd["start_date"] and "stop_date" in ipd and ipd["stop_date"]:
-        clause.append((" ('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
-                       + "('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late))")
-                      % (ipd['start_date'], ipd["stop_date"]))
-    elif "start_date" in ipd and ipd["start_date"]:
-        clause.append(" (DATE(hatch_early) >= '%s' OR DATE(hatch_late) >= '%s')"
-                      % tuple([ipd['start_date']]*2))
-    elif "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" (DATE(hatch_early) <= '%s' OR DATE(hatch_late) <= '%s')"
-                      % tuple([ipd["stop_date"]]*2))
-    if "which" in ipd:
-        if ipd["which"] == "mine":
-            clause.append(" user='%s'" % user)
-        elif ipd["which"] == "eligible":
-            clause.append(" (user='%s' OR user IS NULL)" % user)
-        elif ipd["which"] == "unclaimed":
-            clause.append(" user IS NULL")
-    if "alive" in ipd and "dead" in ipd and not (ipd["alive"] and ipd["dead"]):
-        if not ipd["alive"]:
-            clause.append(" NOT alive")
-        elif not ipd["dead"]:
-            clause.append(" alive")
-    if clause:
-        where = ' AND '.join(clause)
-        sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
-    if app.config["DEBUG"]:
-        print(sql)
-    return sql
-
-
-def clutch_summary_query(ipd):
-    ''' Build a clutch summary query
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          SQL query
-    '''
-    sql = READ["CSUMMARY"]
-    clause = []
-    if "start_date" in ipd and ipd["start_date"]:
-        clause.append(" (DATE(clutch_start) >= '%s' OR DATE(clutch_end) >= '%s')"
-                      % tuple([ipd['start_date']]*2))
-    if "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" (DATE(clutch_start) <= '%s' OR DATE(clutch_end) >= '%s')"
-                      % tuple([ipd["stop_date"]]*2))
-    if clause:
-        where = ' AND '.join(clause)
-        sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
-    if app.config["DEBUG"]:
-        print(sql)
-    return sql
-
-
-def nest_summary_query(ipd):
-    ''' Build a nest summary query
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          SQL query
-    '''
-    sql = READ["NSUMMARY"]
-    clause = []
-    if "start_date" in ipd and ipd["start_date"]:
-        clause.append(" DATE(create_date) >= '%s'" % ipd['start_date'])
-    if "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" DATE(create_date) <= '%s'" % ipd['stop_date'])
-    if clause:
-        where = " AND ".join(clause)
-        sql = sql.replace("ORDER BY", "WHERE " + where + " ORDER BY")
-    return sql
-
-
-def get_user_id(user):
-    ''' Get a user's ID from the "user" table
-        Keyword arguments:
-          user: user
-    '''
-    try:
-        g.c.execute("SELECT id FROM user WHERE name='%s'" % user)
-        row = g.c.fetchone()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    if not row or "id" not in row:
-        raise InvalidUsage(f"User {user} was not found", 404)
-    return row['id']
-
-
 def add_user_permissions(result, user, permissions):
     ''' Add permissions for an existing user
         Keyword arguments:
@@ -648,7 +424,10 @@ def add_user_permissions(result, user, permissions):
           user: user
           permissions: list of permissions
     '''
-    user_id = get_user_id(user)
+    try:
+        user_id = get_user_id(user)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     for permission in permissions:
         try:
             bind = (user_id, permission,)
@@ -714,7 +493,10 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
     '''
     columns = ["bird_id", "status_id", "user_id"]
     values = ["%s", "getCvTermId('bird_status',%s, '')", "%s"]
-    bind = [bird_id, status, get_user_id(user)]
+    try:
+        bind = [bird_id, status, get_user_id(user)]
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     if "location" in kwarg:
         columns.append("location_id")
         values.append("getCvTermId('location', %s, '')")
@@ -745,66 +527,7 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
             print(sql % tuple(bind))
         g.c.execute(sql, tuple(bind))
     except Exception as err:
-        raise render_template("error.html", urlroot=request.url_root,
-                              title="SQL error", message=sql_error(err))
-    #PLUG fix return/raise
-
-
-def generate_user_pulldown(org, category):
-    ''' Generate pulldown menu of all users and organizations
-        Keyword arguments:
-          org: allowable organizations (None=all)
-          category: menu category
-        Returns:
-          HTML menu
-    '''
-    controls = ''
-    try:
-        g.c.execute('SELECT DISTINCT u.* FROM user_vw u JOIN task t ON (u.name=t.user) ' \
-                    + 'ORDER BY last,first')
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    controls = "Show " + category
-    controls += ' for <select id="proofreader" onchange="select_proofreader(this);">' \
-               + '<option value="">Select a proofreader...</option>'
-    for row in rows:
-        if org:
-            rec = get_user_by_name(row["name"])
-            if rec["organization"] not in org:
-                continue
-        controls += '<option value="%s">%s</option>' \
-                    % (row['name'], ', '.join([row['last'], row['first']]))
-    controls += "</select><br><br>"
-    return controls, rows
-
-
-def build_permissions_table(calling_user, user):
-    ''' Generate a user permission table.
-        Keyword arguments:
-          caslling_user: calling user
-          user: user instance
-    '''
-    permissions = user["permissions"].split(",") if user["permissions"] else []
-    template = '<tr><td style="width:300px">%s</td><td style="text-align: center">%s</td></tr>'
-    rows = get_cv_terms('permission')
-    # Permissions
-    parray = []
-    disabled = "" if check_permission(calling_user, ["admin"]) else "disabled"
-    for row in rows:
-        perm = row["cv_term"]
-        display = row["display_name"]
-        val = 'checked="checked"' if perm in permissions else ''
-        check = '<input type="checkbox" %s id="%s" %s onchange="changebox(this);">' \
-                % (val, row["cv_term"], disabled)
-        if row["cv_term"] in permissions:
-            permissions.remove(row["cv_term"])
-        parray.append(template % (display, check))
-    ptable = '<table><thead><tr style="color:#069"><th>Permission</th>' \
-             + '<th>Enabled</th></tr></thead><tbody>' \
-             + ''.join(parray) + '</tbody></table>'
-    return ptable
+        raise err
 
 
 def register_birds(ipd, result):
@@ -852,48 +575,15 @@ def register_birds(ipd, result):
             result["rest"]["relationship_id"].append(g.c.lastrowid)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-    for bird_id in result["rest"]["bird_id"]:
-        log_bird_event(bird_id, user=result['rest']['user'], nest_id=ipd["nest_id"],
-                       location_id=loc_id)
-        if ipd["claim"]:
-            log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
+    try:
+        for bird_id in result["rest"]["bird_id"]:
+            log_bird_event(bird_id, user=result['rest']['user'], nest_id=ipd["nest_id"],
                            location_id=loc_id)
-
-
-def which_birds_user():
-    ''' Return a pulldown menu to select bird claimant
-        Keyword arguments:
-          None
-        Returns:
-          HTML
-    '''
-    return '''
-    <div style='float: left;margin-left: 15px;'>
-      <div class="flexrow">
-        <div class="flexcol">
-          Birds to show:
-        </div>
-        <div class="flexcol">
-          <select id="which" onclick="get_birds();">
-            <option value="mine" selected>Claimed by me</option>
-            <option value="eligible">Claimed by me or unclaimed</option>
-            <option value="unclaimed">Unclaimed birds only</option>
-            <option value="all">All birds</option>
-          </select>
-        </div>
-      </div>
-      <div class="flexrow">
-        <div class="flexcol"></div>
-        <div class="flexcol">
-          <label>Alive</label>
-          <input type="checkbox" id="alive" checked onchange="get_birds();">
-          &nbsp;
-          <label>Dead</label>
-          <input type="checkbox" id="dead" onchange="get_birds();">
-        </div>
-      </div>
-    </div>
-    '''
+            if ipd["claim"]:
+                log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
+                               location_id=loc_id)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
 
 
 def get_user_profile():
@@ -991,17 +681,6 @@ def generate_navbar(active, permissions=None):
             nav += '</li>'
     nav += '</ul></div></nav>'
     return nav
-
-
-@app.errorhandler(InvalidUsage)
-def handle_invalid_usage(error):
-    ''' Error handler
-        Keyword arguments:
-          error: error object
-    '''
-    response = jsonify(error.to_dict())
-    response.status_code = error.status_code
-    return response
 
 
 # *****************************************************************************
@@ -1268,7 +947,7 @@ def download(fname):
     ''' Downloadable content
     '''
     try:
-        return send_file('/tmp/' + fname, attachment_filename=fname)
+        return send_file('/tmp/' + fname, download_name=fname)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title='Download error', message=err)
@@ -1294,14 +973,14 @@ def show_birds(): # pylint: disable=R0914,R0912,R0915
         ipd = {"which": "mine"}
     try:
         sql = bird_summary_query(ipd, user)
-        print(sql)
+        if app.config["DEBUG"]:
+            print(sql)
         g.c.execute(sql)
         rows = g.c.fetchall()
-        print(rows)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
-    controls = which_birds_user()
+    controls = generate_which_pulldown()
     birds = generate_birdlist_table(rows, (ipd["which"] != "mine"))
     if request.method == 'POST':
         return {"birds": birds}
@@ -1361,7 +1040,11 @@ def show_bird(bname):
         <button type="button" class="btn btn-info btn-sm" onclick='update_bird(%s,"alive");'>Mark bird as alive</button>
         '''
         controls = controls % (bird['id'])
-    bprops, events = get_bird_properties(bird, user, permissions)
+    try:
+        bprops, events = get_bird_properties(bird, user, permissions)
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
     return render_template('bird.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
@@ -1426,7 +1109,11 @@ def show_clutch(cname):
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message=f"User {user} is not registered")
-    clutch = get_record(cname, "clutch")
+    try:
+        clutch = get_record(cname, "clutch")
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
     if not clutch:
         return render_template("error.html", urlroot=request.url_root,
                                title="Not found", message=f"Clutch {cname} was not found")
@@ -1505,7 +1192,11 @@ def show_nest(nname):
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message=f"User {user} is not registered")
-    nest = get_record(nname, "nest")
+    try:
+        nest = get_record(nname, "nest")
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
     if not nest:
         return render_template("error.html", urlroot=request.url_root,
                                title="Not found", message=f"Nest {nname} was not found")
@@ -1650,6 +1341,7 @@ def show_search_form():
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
 
+
 @app.route('/run_search', methods=['OPTIONS', 'POST'])
 def run_search():
     '''
@@ -1709,12 +1401,14 @@ def run_search():
         result['data'] = "Missing claimant"
         return generate_response(result)
     sql, bind = get_search_sql(ipd)
+    if app.config['DEBUG']:
+        print(sql % bind)
     try:
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
         result['rest']['sql_statement'] = g.c.mogrify(sql, bind)
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
+        raise InvalidUsage(sql_error(err), 500) from err
     if ipd['key_type'] == 'bird':
         result['data'] += "<h2>Birds</h2>" + generate_birdlist_table(rows)
     elif ipd['key_type'] == 'clutch':
@@ -2247,10 +1941,10 @@ def bird_location(bird_id, location_id):
         bind = (location_id, bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        log_bird_event(bird_id, status="moved", user=result['rest']['user'],
+                       location_id=location_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(bird_id, status="moved", user=result['rest']['user'],
-                   location_id=location_id)
     g.db.commit()
     return generate_response(result)
 
@@ -2292,10 +1986,10 @@ def bird_nest(bird_id, nest_id):
         bind = (nest_id, row["location_id"], bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        log_bird_event(bird_id, status="moved", user=result['rest']['user'],
+                       location_id=row["location_id"], nest_id=nest_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(bird_id, status="moved", user=result['rest']['user'],
-                   location_id=row["location_id"], nest_id=nest_id)
     g.db.commit()
     return generate_response(result)
 
@@ -2328,19 +2022,22 @@ def bird_event(bird_id):
         raise InvalidUsage("You don't have permission to add a bird event")
     check_missing_parms(ipd, ["event", "date", "terminal"])
     result["rest"]["row_count"] = 0
-    log_bird_event(bird_id, status=ipd["event"], user=result['rest']['user'],
-                   notes=ipd["notes"], terminal=ipd["terminal"], date=ipd["date"])
+    try:
+        log_bird_event(bird_id, status=ipd["event"], user=result['rest']['user'],
+                       notes=ipd["notes"], terminal=ipd["terminal"], date=ipd["date"])
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     if ipd["terminal"]:
         sql = "UPDATE bird SET alive=0,death_date=CURRENT_TIMESTAMP(),user_id=NULL WHERE id=%s"
         try:
             bind = (bird_id)
             g.c.execute(sql, bind)
             result["rest"]["row_count"] += g.c.rowcount
+            if ipd["event"] != "died":
+                log_bird_event(bird_id, status="died", user=result['rest']['user'],
+                               location_id=None, terminal=1)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        if ipd["event"] != "died":
-            log_bird_event(bird_id, status="died", user=result['rest']['user'], location_id=None,
-                           terminal=1)
     if ipd["event"] == "unclaimed":
         sql = "UPDATE bird SET user_id=NULL WHERE id=%s"
         try:
@@ -2485,9 +2182,9 @@ def claim_bird(bird_id):
         bind = (result["rest"]["user"], bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        log_bird_event(bird_id, status="claimed", user=result['rest']['user'], location_id=None)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(bird_id, status="claimed", user=result['rest']['user'], location_id=None)
     g.db.commit()
     return generate_response(result)
 
@@ -2517,10 +2214,10 @@ def dead_bird(bird_id):
         bind = (bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        log_bird_event(bird_id, status="died", user=result['rest']['user'], location_id=None,
+                       terminal=1)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(bird_id, status="died", user=result['rest']['user'], location_id=None,
-                   terminal=1)
     g.db.commit()
     return generate_response(result)
 
@@ -2550,9 +2247,9 @@ def unclaim_bird(bird_id):
         bind = (bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        log_bird_event(bird_id, status="unclaimed", user=result['rest']['user'], location_id=None)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    log_bird_event(bird_id, status="unclaimed", user=result['rest']['user'], location_id=None)
     g.db.commit()
     return generate_response(result)
 
@@ -2592,8 +2289,8 @@ def register_bird():
         raise InvalidUsage(sql_error(err), 500) from err
     ipd["claim"] = 0
     ipd["nest_id"] = row["nest_id"]
-    ipd["start_date"] = str(row["clutch_early"]).split(" ")[0]
-    ipd["stop_date"] = str(row["clutch_late"]).split(" ")[0]
+    ipd["start_date"] = str(row['clutch_early']).split(' ', maxsplit=1)[0]
+    ipd["stop_date"] = str(row['clutch_late']).split(' ', maxsplit=1)[0]
     register_birds(ipd, result)
     g.db.commit()
     return generate_response(result)
@@ -2637,7 +2334,11 @@ def register_clutch():
         raise InvalidUsage("You don't have permission to register a clutch")
     check_missing_parms(ipd, ["nest_id", "start_date", "stop_date"])
     check_dates(ipd)
-    nest = get_record(ipd['nest_id'], "nest")
+    try:
+        nest = get_record(ipd['nest_id'], "nest")
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
     name = "_".join([ipd['start_date'].replace("-", ""), nest['name']])
     result['rest']['row_count'] = 0
     sql = "INSERT INTO clutch (name, nest_id, notes, clutch_early,clutch_late) VALUES " \
@@ -2729,6 +2430,13 @@ def nest_location(nest_id, location_id):
     if not check_permission(result["rest"]["user"], ["admin"]):
         raise InvalidUsage("You don't have permission to change a bird's location")
     result["rest"]["row_count"] = 0
+    sql = "UPDATE nest SET location_id=%s WHERE id=%s"
+    try:
+        bind = (location_id, nest_id)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     sql = "UPDATE bird b1,(SELECT id FROM bird WHERE nest_id=%s) b2 " \
           + "SET location_id =%s WHERE b1.id=b2.id"
     try:
@@ -2742,11 +2450,11 @@ def nest_location(nest_id, location_id):
         bind = (nest_id)
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
+        for row in rows:
+            log_bird_event(row["id"], status="moved", user=result['rest']['user'],
+                           location_id=location_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    for row in rows:
-        log_bird_event(row["id"], status="moved", user=result['rest']['user'],
-                       location_id=location_id)
     g.db.commit()
     return generate_response(result)
 
@@ -2800,11 +2508,11 @@ def nest_nest(nest_id, new_nest_id):
         bind = (nest_id, new_nest_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+        for row in rows:
+            log_bird_event(row["id"], status="moved", user=result['rest']['user'],
+                           location_id=location_id, nest_id=new_nest_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
-    for row in rows:
-        log_bird_event(row["id"], status="moved", user=result['rest']['user'],
-                       location_id=location_id, nest_id=new_nest_id)
     # Remove birds from old nest
     sql = "UPDATE nest SET sire_id=NULL,damsel_id=NULL,female1_id=NULL,female2_id=NULL," \
           + "female3_id=NULL,breeding=0,fostering=0,tutoring=0,active=0 where id=%s"
@@ -3071,7 +2779,10 @@ def delete_user(): # pragma: no cover
     if not check_permission(result['rest']['user'], 'admin'):
         raise InvalidUsage("You don't have permission to delete a user")
     result['rest']['row_count'] = 0
-    user_id = get_user_id(ipd['name'])
+    try:
+        user_id = get_user_id(ipd['name'])
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     sql = 'DELETE FROM user_permission WHERE user_id=%s'
     try:
         g.c.execute(sql % (user_id))
@@ -3161,7 +2872,10 @@ def delete_user_permission(): # pragma: no cover
     if type(ipd['permissions']).__name__ != 'list':
         raise InvalidUsage('Permissions must be specified as a list')
     result['rest']['row_count'] = 0
-    user_id = get_user_id(ipd['name'])
+    try:
+        user_id = get_user_id(ipd['name'])
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
     for permission in ipd['permissions']:
         sql = "DELETE FROM user_permission WHERE user_id=%s AND permission_id=" \
               + "getCvTermId('permission','%s','')"
@@ -3178,5 +2892,5 @@ def delete_user_permission(): # pragma: no cover
 
 
 if __name__ == '__main__':
-    #app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
-    app.run(debug=True)
+    app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
+    #app.run(debug=True)
