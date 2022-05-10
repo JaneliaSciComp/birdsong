@@ -17,7 +17,7 @@ function select_location(nest, sel) {
       dataType: 'json',
       contentType:'application/json',
       success: function(result) {
-        alert("The location has been changed for birds in this nest");
+        alert("The location has been changed for this nest and its birds");
         window.location.href = window.location.pathname
       },
       error: function (xhr, ajaxOptions, thrownError) {
@@ -71,8 +71,8 @@ onload="tableInitialize();"
   </tbody>
   </table>
   <br>
-  {{birds|safe}}
-  <br>
   {{clutches|safe}}
+  <br>
+  {{birds|safe}}
   {{controls|safe}}
 {% endblock %}
