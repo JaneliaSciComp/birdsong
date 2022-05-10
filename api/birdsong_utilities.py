@@ -65,6 +65,249 @@ class InvalidUsage(Exception):
 
 
 # *****************************************************************************
+# * Color/banding functions                                                   *
+# *****************************************************************************
+
+def apply_color(text, true_color, condition=True, false_color=None, false_text=None):
+    ''' Return colorized text
+        Keyword arguments:
+          text: text to colorize
+          true_color: color if condition is true
+          condition: condition to determine color
+          false_color: color if condition is false
+          false_text: text replacement if condition is false
+        Returns:
+          colorized text
+    '''
+    if not condition:
+        if false_text:
+            text = false_text
+        if not false_color:
+            return text
+    return "<span style='color:%s'>%s</span>" \
+           % ((true_color, text) if condition else (false_color, text))
+
+
+def colorband(name, text=None, big=False):
+    ''' Create a bands color display
+        Keyword arguments:
+          name: bird, clutch, or nest name
+          text: optional text to display
+        Returns:
+          HTML
+    '''
+    html = '<div class="bands">'
+    bclass = "band"
+    if big:
+        bclass += " bigband"
+    name = re.sub(".+_", "", name)
+    if re.search("\d", name):
+        cols = re.findall("[a-z]+", name)
+        for col in cols:
+            html += '<div class="%s %s"></div>' % (bclass, col)
+    else:
+        cols = re.finditer(r"black|blue|brown|green|orange|pink|purple|red|tut|white|yellow", name)
+        for col in cols:
+            html += '<div class="%s %s"></div>' % (bclass, col.group())
+    if text:
+        html += '&nbsp;<div class="flexcol">%s</div>' % (text,)
+    html += '</div>'
+    return html
+
+
+def get_banding(ipd):
+    ''' Get banding and nest information
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          name: nest name
+          band: nest band
+    '''
+    # Colors
+    try:
+        g.c.execute("SELECT display_name,cv_term FROM cv_term_vw WHERE cv='color'")
+        rows = g.c.fetchall()
+        color = {}
+        for row in rows:
+            color[row['cv_term']] = row['display_name']
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    name = "".join([ipd["start_date"].replace("-", ""), "_", ipd["color1"], ipd["color2"]])
+    band = color[ipd["color1"]] + color[ipd["color2"]]
+    return name, band
+
+
+def get_banding_and_location(ipd):
+    ''' Get banding, nest, and location information
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          band: list of bird names and band names
+          nest: nest record
+          loc_id: location ID
+    '''
+    # Colors
+    try:
+        g.c.execute("SELECT display_name,cv_term FROM cv_term_vw WHERE cv='color'")
+        rows = g.c.fetchall()
+        color = {}
+        for row in rows:
+            color[row['display_name']] = row['cv_term']
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    # Nest
+    try:
+        g.c.execute("SELECT * FROM nest WHERE id=%s", (ipd['nest_id'],))
+        nest = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    # Location
+    try:
+        g.c.execute("SELECT location_id FROM bird WHERE id=%s", (nest["sire_id"],))
+        row = g.c.fetchone()
+        loc_id = row["location_id"]
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    # Bands
+    band = []
+    for barr in ipd['bands']:
+        nband = "".join([nest['band'][0:2], barr[0], nest['band'][-2:], barr[1]])
+        color1 = color[nest["band"][0:2]]
+        color2 = color[nest["band"][-2:]]
+        name = "".join([ipd["start_date"].replace("-", ""), "_", color1, barr[0],
+                        color2, barr[1]])
+        band.append({"name": name, "band": nband})
+    return band, nest, loc_id
+
+
+# *****************************************************************************
+# * Table generators                                                          *
+# *****************************************************************************
+
+def generate_birdlist_table(rows, showall=True):
+    ''' Given rows from bird_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+          showall: show all birds
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
+                  'Current age', 'Alive']
+        if showall:
+            header.insert(3, "Claimed by")
+        birds = '''
+        <table id="birds" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            for col in ("nest", "notes", "username"):
+                if not row[col]:
+                    row[col] = ""
+            outcol = [row['name'], row['band'], row['nest'], row['location'],
+                      row['sex'], row['notes'], row['current_age'], row['alive']]
+            if showall:
+                outcol.insert(3, row["username"])
+            fileoutput += ftemplate % tuple(outcol)
+            rclass = 'alive' if row['alive'] else 'dead'
+            bird = colorband(row['name'], '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2))
+            if not row['alive']:
+                row['current_age'] = '-'
+            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
+                      row['notes'], row['current_age'], alive]
+            if showall:
+                outcol.insert(4, row["username"])
+            birds += template % tuple(outcol)
+        birds += "</tbody></table>"
+        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
+        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
+                % (downloadable) + 'role="button">Download table</a>' + birds
+    else:
+        birds = "No birds were found"
+    return birds
+
+
+def generate_clutchlist_table(rows):
+    ''' Given rows from clutch_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Nest', 'Clutch early', 'Clutch late', 'Bird count', 'Notes']
+        clutches = '''
+        <table id="clutches" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['nest'],
+                                       strip_time(row['clutch_early']),
+                                       strip_time(row['clutch_late']), cnt, row['notes'])
+            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            clutch = colorband(row['name'], '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2))
+            clutches += template % (clutch, nest, strip_time(row['clutch_early']),
+                                    strip_time(row['clutch_late']), cnt, row['notes'])
+        clutches += "</tbody></table>"
+        downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
+        clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                   + 'role="button">Download table</a>' + clutches
+    else:
+        clutches = "No clutches were found"
+    return clutches
+
+
+def generate_nestlist_table(rows):
+    ''' Given rows from nest_vw, return an HTML table
+        Keyword arguments:
+          rows: rows from database search
+        Returns:
+          HTML table
+    '''
+    if rows:
+        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
+        nests = '''
+        <table id="nests" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+        for row in rows:
+            cnt = get_clutch_or_nest_count(row["id"])
+            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
+                                       row['damsel'], cnt, row['location'], row['notes'])
+            nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))
+            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
+            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
+            nests += template % (nest, row['band'], sire, damsel,
+                                 cnt, row['location'], row['notes'])
+        nests += "</tbody></table>"
+        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
+        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                 + 'role="button">Download table</a>' + nests
+    else:
+        nests = "No nests were found"
+    return nests
+
+
+# *****************************************************************************
 # * Pulldown generators                                                       *
 # *****************************************************************************
 
@@ -280,80 +523,8 @@ def generate_sex_pulldown(this_id):
     return controls
 
 # *****************************************************************************
-# * Functions                                                                 *
+# * Verification/validation functions                                         *
 # *****************************************************************************
-
-def add_key_value_pair(key, val, separator, sql, bind):
-    ''' Add a key/value pair to the WHERE clause of a SQL statement
-        Keyword arguments:
-          key: column
-          value: value
-          separator: logical separator (AND, OR)
-          sql: SQL statement
-          bind: bind tuple
-    '''
-    eprefix = ''
-    if not isinstance(key, str):
-        key = key.decode('utf-8')
-    if re.search(r'[!><]$', key):
-        match = re.search(r'[!><]$', key)
-        eprefix = match.group(0)
-        key = re.sub(r'[!><]$', '', key)
-    if not isinstance(val[0], str):
-        val[0] = val[0].decode('utf-8')
-    if '*' in val[0]:
-        val[0] = val[0].replace('*', '%')
-        if eprefix == '!':
-            eprefix = ' NOT'
-        else:
-            eprefix = ''
-        sql += separator + ' ' + key + eprefix + ' LIKE %s'
-    else:
-        sql += separator + ' ' + key + eprefix + '=%s'
-    bind = bind + (val,)
-    return sql, bind
-
-
-def apply_color(text, true_color, condition=True, false_color=None, false_text=None):
-    ''' Return colorized text
-        Keyword arguments:
-          text: text to colorize
-          true_color: color if condition is true
-          condition: condition to determine color
-          false_color: color if condition is false
-          false_text: text replacement if condition is false
-        Returns:
-          colorized text
-    '''
-    if not condition:
-        if false_text:
-            text = false_text
-        if not false_color:
-            return text
-    return "<span style='color:%s'>%s</span>" \
-           % ((true_color, text) if condition else (false_color, text))
-
-
-def call_responder(server, endpoint):
-    ''' Call a responder
-        Keyword arguments:
-          server: server
-          endpoint: REST endpoint
-    '''
-    if server not in CONFIG:
-        raise Exception("Configuration key %s is not defined" % (server))
-    url = CONFIG[server]['url'] + endpoint
-    try:
-        req = requests.get(url)
-    except requests.exceptions.RequestException as err:
-        print(err)
-        raise err
-    if req.status_code == 200:
-        return req.json()
-    print("Could not get response from %s: %s" % (url, req.text))
-    #raise InvalidUsage("Could not get response from %s: %s" % (url, req.text))
-    raise InvalidUsage(req.text, req.status_code)
-
 
 def check_dates(ipd):
     ''' Ensure that start/stop dates are in sequence
@@ -400,171 +571,55 @@ def check_permission(user, permission=None):
     return False
 
 
-def create_downloadable(name, header, template, content):
-    ''' Generate a dowenloadabe content file
+def validate_user(user):
+    ''' Validate a user
         Keyword arguments:
-          name: base file name
-          header: table header
-          template: header row template
-          content: table content
+          user: user name or Janelia ID
         Returns:
-          File name
+          True or False
     '''
-    fname = "%s_%s_%s.tsv" % (name, random_string(), datetime.today().strftime("%Y%m%d%H%M%S"))
-    with open("/tmp/%s" % (fname), "w", encoding="utf8") as text_file:
-        text_file.write(template % tuple(header))
-        text_file.write(content)
-    return fname
+    stmt = "SELECT * FROM user_vw WHERE name=%s OR janelia_id=%s"
+    try:
+        g.c.execute(stmt, (user, user))
+        usr = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500)
+    return bool(usr)
 
 
-def generate_birdlist_table(rows, showall=True):
-    ''' Given rows from bird_vw, return an HTML table
+# *****************************************************************************
+# * Database functions                                                        *
+# *****************************************************************************
+
+def add_key_value_pair(key, val, separator, sql, bind):
+    ''' Add a key/value pair to the WHERE clause of a SQL statement
         Keyword arguments:
-          rows: rows from database search
-          showall: show all birds
-        Returns:
-          HTML table
+          key: column
+          value: value
+          separator: logical separator (AND, OR)
+          sql: SQL statement
+          bind: bind tuple
     '''
-    if rows:
-        header = ['Name', 'Band', 'Nest', 'Location', 'Sex', 'Notes',
-                  'Current age', 'Alive']
-        if showall:
-            header.insert(3, "Claimed by")
-        birds = '''
-        <table id="birds" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            for col in ("nest", "notes", "username"):
-                if not row[col]:
-                    row[col] = ""
-            outcol = [row['name'], row['band'], row['nest'], row['location'],
-                      row['sex'], row['notes'], row['current_age'], row['alive']]
-            if showall:
-                outcol.insert(3, row["username"])
-            fileoutput += ftemplate % tuple(outcol)
-            rclass = 'alive' if row['alive'] else 'dead'
-            bird = colorband(row['name'], '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2))
-            if not row['alive']:
-                row['current_age'] = '-'
-            alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
-                      row['notes'], row['current_age'], alive]
-            if showall:
-                outcol.insert(4, row["username"])
-            birds += template % tuple(outcol)
-        birds += "</tbody></table>"
-        downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
-        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
-                % (downloadable) + 'role="button">Download table</a>' + birds
+    eprefix = ''
+    if not isinstance(key, str):
+        key = key.decode('utf-8')
+    if re.search(r'[!><]$', key):
+        match = re.search(r'[!><]$', key)
+        eprefix = match.group(0)
+        key = re.sub(r'[!><]$', '', key)
+    if not isinstance(val[0], str):
+        val[0] = val[0].decode('utf-8')
+    if '*' in val[0]:
+        val[0] = val[0].replace('*', '%')
+        if eprefix == '!':
+            eprefix = ' NOT'
+        else:
+            eprefix = ''
+        sql += separator + ' ' + key + eprefix + ' LIKE %s'
     else:
-        birds = "No birds were found"
-    return birds
-
-
-def colorband(name, text=None, big=False):
-    ''' Create a bands color display
-        Keyword arguments:
-          name: bird, clutch, or nest name
-          text: optional text to display
-        Returns:
-          HTML
-    '''
-    html = '<div class="bands">'
-    bclass = "band"
-    if big:
-        bclass += " bigband"
-    name = re.sub(".+_", "", name)
-    if re.search("\d", name):
-        cols = re.findall("[a-z]+", name)
-        for col in cols:
-            html += '<div class="%s %s"></div>' % (bclass, col)
-    else:
-        cols = re.finditer(r"black|blue|brown|green|orange|pink|purple|red|tut|white|yellow", name)
-        for col in cols:
-            html += '<div class="%s %s"></div>' % (bclass, col.group())
-    if text:
-        html += '&nbsp;<div class="flexcol">%s</div>' % (text,)
-    html += '</div>'
-    return html
-
-
-def generate_clutchlist_table(rows):
-    ''' Given rows from clutch_vw, return an HTML table
-        Keyword arguments:
-          rows: rows from database search
-        Returns:
-          HTML table
-    '''
-    if rows:
-        header = ['Name', 'Nest', 'Clutch early', 'Clutch late', 'Bird count', 'Notes']
-        clutches = '''
-        <table id="clutches" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['nest'],
-                                       strip_time(row['clutch_early']),
-                                       strip_time(row['clutch_late']), cnt, row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            clutch = colorband(row['name'], '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2))
-            clutches += template % (clutch, nest, strip_time(row['clutch_early']),
-                                    strip_time(row['clutch_late']), cnt, row['notes'])
-        clutches += "</tbody></table>"
-        downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
-        clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                   + 'role="button">Download table</a>' + clutches
-    else:
-        clutches = "No clutches were found"
-    return clutches
-
-
-def generate_nestlist_table(rows):
-    ''' Given rows from nest_vw, return an HTML table
-        Keyword arguments:
-          rows: rows from database search
-        Returns:
-          HTML table
-    '''
-    if rows:
-        header = ['Name', 'Band', 'Sire', 'Damsel', 'Bird count', 'Location', 'Notes']
-        nests = '''
-        <table id="nests" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        nests += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr class="open">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(header)) + "\n"
-        for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
-                                       row['damsel'], cnt, row['location'], row['notes'])
-            nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))
-            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
-            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
-            nests += template % (nest, row['band'], sire, damsel,
-                                 cnt, row['location'], row['notes'])
-        nests += "</tbody></table>"
-        downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
-        nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                 + 'role="button">Download table</a>' + nests
-    else:
-        nests = "No nests were found"
-    return nests
+        sql += separator + ' ' + key + eprefix + '=%s'
+    bind = bind + (val,)
+    return sql, bind
 
 
 def execute_sql(result, sql, debug, container="data"):
@@ -633,28 +688,6 @@ def generate_sql(result, sql):
     return sql, bind
 
 
-def get_banding(ipd):
-    ''' Get banding and nest information
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          name: nest name
-          band: nest band
-    '''
-    # Colors
-    try:
-        g.c.execute("SELECT display_name,cv_term FROM cv_term_vw WHERE cv='color'")
-        rows = g.c.fetchall()
-        color = {}
-        for row in rows:
-            color[row['cv_term']] = row['display_name']
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    name = "".join([ipd["start_date"].replace("-", ""), "_", ipd["color1"], ipd["color2"]])
-    band = color[ipd["color1"]] + color[ipd["color2"]]
-    return name, band
-
-
 def get_cv_terms(ccv):
     ''' Get CV terms for a given CV
         Keyword arguments:
@@ -669,49 +702,6 @@ def get_cv_terms(ccv):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     return rows
-
-
-def get_banding_and_location(ipd):
-    ''' Get banding, nest, and location information
-        Keyword arguments:
-          ipd: request payload
-        Returns:
-          band: list of bird names and band names
-          nest: nest record
-          loc_id: location ID
-    '''
-    # Colors
-    try:
-        g.c.execute("SELECT display_name,cv_term FROM cv_term_vw WHERE cv='color'")
-        rows = g.c.fetchall()
-        color = {}
-        for row in rows:
-            color[row['display_name']] = row['cv_term']
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    # Nest
-    try:
-        g.c.execute("SELECT * FROM nest WHERE id=%s", (ipd['nest_id'],))
-        nest = g.c.fetchone()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    # Location
-    try:
-        g.c.execute("SELECT location_id FROM bird WHERE id=%s", (nest["sire_id"],))
-        row = g.c.fetchone()
-        loc_id = row["location_id"]
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    # Bands
-    band = []
-    for barr in ipd['bands']:
-        nband = "".join([nest['band'][0:2], barr[0], nest['band'][-2:], barr[1]])
-        color1 = color[nest["band"][0:2]]
-        color2 = color[nest["band"][-2:]]
-        name = "".join([ipd["start_date"].replace("-", ""), "_", color1, barr[0],
-                        color2, barr[1]])
-        band.append({"name": name, "band": nband})
-    return band, nest, loc_id
 
 
 def get_clutch_or_nest_count(cnid, which="clutch"):
@@ -764,15 +754,6 @@ def get_user_by_name(uname):
     return row
 
 
-def random_string(strlen=8):
-    ''' Generate a random string of letters and digits
-        Keyword arguments:
-          strlen: length of generated string
-    '''
-    components = string.ascii_letters + string.digits
-    return ''.join(random.choice(components) for i in range(strlen))
-
-
 def sql_error(err):
     ''' Given a MySQL error, return the error message
         Keyword arguments:
@@ -786,16 +767,6 @@ def sql_error(err):
     if error_msg:
         print(error_msg)
     return error_msg
-
-
-def strip_time(ddt):
-    ''' Return the date portion of a datetime
-        Keyword arguments:
-          ddt: datetime
-        Returns:
-          String date
-    '''
-    return ddt.strftime("%Y-%m-%d")
 
 
 def update_property(pid, table, name, value):
@@ -818,17 +789,62 @@ def update_property(pid, table, name, value):
         raise InvalidUsage(sql_error(err), 500)
 
 
-def validate_user(user):
-    ''' Validate a user
+# *****************************************************************************
+# * General functions                                                         *
+# *****************************************************************************
+
+def call_responder(server, endpoint):
+    ''' Call a responder
         Keyword arguments:
-          user: user name or Janelia ID
-        Returns:
-          True or False
+          server: server
+          endpoint: REST endpoint
     '''
-    stmt = "SELECT * FROM user_vw WHERE name=%s OR janelia_id=%s"
+    if server not in CONFIG:
+        raise Exception("Configuration key %s is not defined" % (server))
+    url = CONFIG[server]['url'] + endpoint
     try:
-        g.c.execute(stmt, (user, user))
-        usr = g.c.fetchone()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500)
-    return bool(usr)
+        req = requests.get(url)
+    except requests.exceptions.RequestException as err:
+        print(err)
+        raise err
+    if req.status_code == 200:
+        return req.json()
+    print("Could not get response from %s: %s" % (url, req.text))
+    #raise InvalidUsage("Could not get response from %s: %s" % (url, req.text))
+    raise InvalidUsage(req.text, req.status_code)
+
+
+def create_downloadable(name, header, template, content):
+    ''' Generate a dowenloadabe content file
+        Keyword arguments:
+          name: base file name
+          header: table header
+          template: header row template
+          content: table content
+        Returns:
+          File name
+    '''
+    fname = "%s_%s_%s.tsv" % (name, random_string(), datetime.today().strftime("%Y%m%d%H%M%S"))
+    with open("/tmp/%s" % (fname), "w", encoding="utf8") as text_file:
+        text_file.write(template % tuple(header))
+        text_file.write(content)
+    return fname
+
+
+def random_string(strlen=8):
+    ''' Generate a random string of letters and digits
+        Keyword arguments:
+          strlen: length of generated string
+    '''
+    components = string.ascii_letters + string.digits
+    return ''.join(random.choice(components) for i in range(strlen))
+
+
+def strip_time(ddt):
+    ''' Return the date portion of a datetime
+        Keyword arguments:
+          ddt: datetime
+        Returns:
+          String date
+    '''
+    return ddt.strftime("%Y-%m-%d")
