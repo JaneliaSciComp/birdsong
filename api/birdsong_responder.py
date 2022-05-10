@@ -243,8 +243,14 @@ def get_bird_properties(bird, user, permissions):
     bprops = []
     bprops.append(["Name:", colorband(bird["name"], bird["name"])])
     bprops.append(["Band:", bird["band"]])
-    bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
-    bprops.append(["Nest:", '<a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
+    if bird["clutch"]:
+        bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
+    else:
+        bprops.append(["Clutch:", "None"])
+    if bird["nest"]:
+        bprops.append(["Nest:", '<a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
+    else:
+        bprops.append(["Nest:", "None"])
     bprops.append(["Location:", bird['location']])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
@@ -253,8 +259,14 @@ def get_bird_properties(bird, user, permissions):
        set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
         birdsex = generate_sex_pulldown(bird["id"])
     bprops.append(["Sex:", birdsex])
-    bprops.append(["Sire:", '<a href="/bird/%s">%s</a>' % tuple([bird["sire"]]*2)])
-    bprops.append(["Damsel:", '<a href="/bird/%s">%s</a>' % tuple([bird["damsel"]]*2)])
+    if bird["sire"]:
+        bprops.append(["Sire:", '<a href="/bird/%s">%s</a>' % tuple([bird["sire"]]*2)])
+    else:
+        bprops.append(["Sire:", "None"])
+    if bird["damsel"]:
+        bprops.append(["Damsel:", '<a href="/bird/%s">%s</a>' % tuple([bird["damsel"]]*2)])
+    else:
+        bprops.append(["Damsel:", "None"])
     early = str(bird["hatch_early"]).split(' ', maxsplit=1)[0]
     late = str(bird["hatch_late"]).split(' ', maxsplit=1)[0]
     bprops.append(["Hatch date:", " - ".join([early, late])])
