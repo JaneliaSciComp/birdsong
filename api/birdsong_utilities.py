@@ -236,7 +236,7 @@ def generate_birdlist_table(rows, showall=True):
         fileoutput = ''
         ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
-            for col in ("nest", "notes", "username"):
+            for col in ("nest", "notes", "sex", "username"):
                 if not row[col]:
                     row[col] = ""
             outcol = [row['name'], row['band'], row['nest'], row['location'],

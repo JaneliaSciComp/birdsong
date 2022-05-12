@@ -333,7 +333,7 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
         birds += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
         template = '<tr class="%s">' + ''.join("<td>%s</td>")*len(header) + "</tr>"
         for row in rows:
-            for col in ("notes", "username"):
+            for col in ("notes", "sex", "username"):
                 if not row[col]:
                     row[col] = ""
             rclass = 'alive' if row['alive'] else 'dead'
@@ -1245,15 +1245,13 @@ def show_clutch(cname):
     # OPTIONAL: move clutch to new nest
     #    controls += "<br>Move clutch to new nest " \
     #                + generate_nest_pulldown(["breeding", "fostering"], clutch["id"])
-    if set(['admin', 'edit', 'manager']).intersection(permissions):
-        controls = '<button type="submit" id="sb" class="btn btn-primary btn-sm" ' \
-                   + 'onclick="add_bird();" href="#">Add bird</button>'
+    auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
     cprops, birds = get_clutch_properties(clutch)
     birds += '<input type="hidden" id="clutch_id" value="%s">' % (clutch["id"])
     return render_template('clutch.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Clutches', permissions),
-                           clutch=cname, cprops=cprops, birds=birds, controls=controls)
+                           clutch=cname, cprops=cprops, birds=birds, controls=controls, auth=auth)
 
 
 @app.route('/newclutch')
@@ -1332,11 +1330,12 @@ def show_nest(nname):
             return render_template("error.html", urlroot=request.url_root,
                                    title="SQL error", message=sql_error(err))
     nprops, birds, clutches = get_nest_properties(nest)
+    auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Nests', permissions),
                            nest=nname, nest_id=nest['id'], nprops=nprops, birds=birds,
-                           clutches=clutches, controls=controls)
+                           clutches=clutches, controls=controls, auth=auth)
 
 
 @app.route('/newnest')

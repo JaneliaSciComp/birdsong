@@ -127,6 +127,7 @@ onload="tableInitialize();"
   {{clutches|safe}}
   <br>
   {{birds|safe}}
+  {% if auth == 1 %}
   <h4>Add a new bird to this nest</h4>
   <h4>Required parameters:</h4>
   <input type="hidden" id="nest_id" value="{{nest_id}}" />
@@ -149,19 +150,24 @@ onload="tableInitialize();"
     $('#stop').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{stop}}' });
   </script>
   <br>
-  <div class="flexcontainer">
-    <div class="flexitem" style="width:350px">
-    <h5>Upper band</h5>
-    {{ color1|safe }}
-    Number: <input id="number1" class="form-control col-sm-2">
-    </div>
-    <div class="flexitem" style="width:350px">
-    <h5>Lower band</h5>
-    {{ color2|safe }}
-    Number: <input id="number2" class="form-control col-sm-2">
-    </div>
-  </div>
-  <br>
+    <table id="birdtable" class=" table order-list" style="width:350px">
+      <thead style="color:white">
+        <tr>
+          <td>Upper band #</td>
+          <td>Lower band #</td>
+        </tr>
+      </thead> 
+      <tbody>
+        <tr>
+          <td>
+            <input type="text" id="number1" class="form-control" />
+          </td>
+          <td>
+            <input type="text" id="number2" class="form-control" />
+          </td>
+        </tr>
+      </tbody>
+    </table>
   <div class="flexcontainer">
     <div class="flexitem" style="width:110px">
       Sex:
@@ -186,4 +192,5 @@ onload="tableInitialize();"
   </div>
   <br>
   <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_bird();" href="#">Register bird</button>
+  {% endif %}
 {% endblock %}

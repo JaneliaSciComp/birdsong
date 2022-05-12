@@ -9,7 +9,8 @@
 function add_bird() {
   token = $.cookie('birdsong-token');
   url = "/registerbird";
-  var array = {"clutch_id": $('#clutch_id').val()
+  var array = {"clutch_id": $('#clutch_id').val(),
+               "notes": $('#notes').val()
               };
   var uppers = [];
   error = 0;
@@ -110,9 +111,11 @@ onload="tableInitialize();"
   {{birds|safe}}
   <br>
   <div class="container">
+    {% if auth == 1 %}
+    <br>
     <table id="birdtable" class=" table order-list" style="width:350px">
       <thead style="color:white">
-        <tr><td colspan=2><h4>Add bird to clutch</h4></td></tr>
+        <tr><td colspan=2><h4>Add a new bird to this clutch</h4></td></tr>
         <tr>
           <td>Upper band #</td>
           <td>Lower band #</td>
@@ -129,6 +132,14 @@ onload="tableInitialize();"
         </tr>
       </tbody>
     </table>
+    <h4>Optional parameters:</h4>
+    <div class="grid-container" width="500">
+      <div class="grid-item">Notes:</div>
+      <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+    </div>
+    <br>
+    <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="add_bird();" href="#">Add bird</button>
+    {% endif %}
     {{controls|safe}}
   </div>
 {% endblock %}
