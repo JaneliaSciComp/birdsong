@@ -79,8 +79,8 @@ onload="tableInitialize();"
 
 {% block content %}
   <h2>Locations</h2>
-  <div class="flexrow">
-    <div class="flexcol">
+  <div class="flexcontainertop">
+    <div class="flexitem">
       {{locations|safe}}
       <table id="locations" class="tablesorter standard">
       <thead>
@@ -91,7 +91,7 @@ onload="tableInitialize();"
       </tbody>
       </table>
     </div>
-    <div class="flexcol">
+    <div class="flexitem">
       {{addlocation|safe}}
     </div>
   </div>

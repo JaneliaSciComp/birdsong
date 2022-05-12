@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 from flask import g, request
 import requests
 
-# pylint: disable=C0209, C0302, W0703
+# pylint: disable=C0302, W0703
 
 CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
 BEARER = ""
@@ -31,8 +31,8 @@ READ = {
 }
 WRITE = {
     'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,"
-                   + "user_id,notes,alive,hatch_early,hatch_late) VALUES "
-                   + "(%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s)",
+                   + "user_id,notes,alive,hatch_early,hatch_late,sex) VALUES "
+                   + "(%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s)",
     'INSERT_CV': "INSERT INTO cv (name,definition,display_name,version,"
                  + "is_current) VALUES (%s,%s,%s,%s,%s)",
     'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
@@ -140,6 +140,37 @@ def get_banding(ipd):
     return name, band
 
 
+def get_band_from_name(name):
+    ''' Given a bird name, return the band
+        Keyword arguments:
+          name: bird name
+        Returns:
+          band: band
+    '''
+    color = {}
+    rows = get_cv_terms("color")
+    for row in rows:
+        color[row['cv_term']] = row['display_name']
+    field = re.findall(r"([a-z]+|\d+)", name)
+    band = color[field[1]] + field[2] + color[field[3]] + field[4]
+    return band
+
+
+def get_colors_from_band(band):
+    ''' Given a nest band, return the colors
+        Keyword arguments:
+          name: nest band
+        Returns:
+          colors: array of colors
+    '''
+    color = {}
+    rows = get_cv_terms("color")
+    for row in rows:
+        color[row['display_name']] = row['cv_term']
+    field = re.findall(r"([a-z][a-z])", band)
+    return [color[field[0]], color[field[1]]]
+
+
 def get_banding_and_location(ipd):
     ''' Get banding, nest, and location information
         Keyword arguments:
@@ -149,15 +180,10 @@ def get_banding_and_location(ipd):
           nest: nest record
           loc_id: location ID
     '''
-    # Colors
-    try:
-        g.c.execute("SELECT display_name,cv_term FROM cv_term_vw WHERE cv='color'")
-        rows = g.c.fetchall()
-        color = {}
-        for row in rows:
-            color[row['display_name']] = row['cv_term']
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+    color = {}
+    rows = get_cv_terms("color")
+    for row in rows:
+        color[row['display_name']] = row['cv_term']
     # Nest
     try:
         g.c.execute("SELECT * FROM nest WHERE id=%s", (ipd['nest_id'],))
@@ -410,7 +436,7 @@ def generate_color_pulldown(sid, simple=False):
     return controls
 
 
-def generate_location_pulldown(sid, simple=False):
+def generate_location_pulldown(sid, used=True, simple=False):
     ''' Generate pulldown menu of all in-use locations
         Keyword arguments:
           sid: select ID
@@ -420,19 +446,23 @@ def generate_location_pulldown(sid, simple=False):
     '''
     controls = ''
     try:
-        g.c.execute(READ["INUSE"])
-        rows = g.c.fetchall()
+        if used:
+            g.c.execute(READ["INUSE"])
+            rows = g.c.fetchall()
+        else:
+            g.c.execute(READ["INUSE"])
+            rows = get_cv_terms('location')
     except Exception as err:
         return err
     if simple:
         controls = '<select id="%s"><option value="">' % (sid)\
                    + 'Select a location...</option>'
     else:
-        controls = '<select id="%s" class="form-control col-sm-6"><option value="">' % (sid)\
+        controls = '<select id="%s" class="form-control col-sm-10"><option value="">' % (sid)\
                    + 'Select a location...</option>'
     for row in rows:
         controls += '<option value="%s">%s</option>' \
-                    % (row["name"], row["display_name"])
+                    % (row["name"] if "name" in row else row["id"], row["display_name"])
     controls += "</select>"
     return controls
 

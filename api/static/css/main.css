@@ -67,12 +67,22 @@ table.standard {
   border-radius: 50%;
 }
 
-.flexrow {
+.flexcontainer {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 
-.flexcol {
-  flex: 50%;
+.flexcontainertop {
+  display: flex;
+  flex-direction: row;
+  align-items: top;
+  gap: 10px;
+}
+
+.flexitem {
+  flex-basis:  | auto;
 }
 
 /* Bands */

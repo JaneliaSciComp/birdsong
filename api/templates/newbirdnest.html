@@ -72,15 +72,25 @@ $('select').selectpicker();
   <h2>Register a new bird to a nest</h2>
   <br>
   <h4>Required parameters:</h4>
-  <div style='float: left;margin:10px 0 15px 0;'>
-  <div style='float: left'>Early hatch date:</div><div style='float: left;margin-left: 10px;'><input id="start" width=200></div>
-  <div style='float: left;margin-left: 10px;'>Late hatch date:</div><div style='float: left;margin-left: 10px;'><input id="stop" width=200></div>
+  <div class="flexcontainer">
+    <div class="flexitem">
+      Early hatch date:
+    </div>
+    <div class="flexitem">
+      <input id="start" width=200>
+    </div>
+    <div class="flexitem">
+      Late hatch date:
+    </div>
+    <div class="flexitem">
+      <input id="stop" width=200>
+    </div>
   </div>
   <script>
     $('#start').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{start}}', minDate: '2019-09-01' });
     $('#stop').datepicker({ uiLibrary: 'bootstrap4', format: 'yyyy-mm-dd', value: '{{stop}}' });
   </script>
-  <div style='clear:both'></div>
+  <br>
   <div class="grid-container" width="500">
     <div class="grid-item">Nest:</div>
     <div class="grid-item">{{nestselect | safe}}</div>

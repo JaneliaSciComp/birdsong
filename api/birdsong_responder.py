@@ -25,12 +25,12 @@ from oauthlib.oauth2 import WebApplicationClient
 import birdsong_utilities
 from birdsong_utilities import *
 
-# pylint: disable=C0209, C0302, C0103, W0703
+# pylint: disable=C0302, C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, obj1):   # pylint: disable=E0202, W0221, W0237
+    def default(self, obj1):   # pylint: disable=E0202, W0221
         try:
             if isinstance(obj1, datetime):
                 return obj1.strftime("%a, %-d %b %Y %H:%M:%S")
@@ -542,6 +542,63 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
         raise err
 
 
+def register_single_bird(ipd, result):
+    ''' Register one bird (no clutch or nest)
+        Keyword arguments:
+          ipd: request payload
+          result: result dictionary
+        Returns:
+          Values added in result dict
+    '''
+    # User/claim
+    user_id = None
+    if ipd["claim"]:
+        try:
+            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
+            row = g.c.fetchone()
+            user_id = row["id"]
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+    result['rest']['row_count'] = 0
+    # Notes
+    if ("notes" not in ipd) or (not ipd["notes"]):
+        ipd["notes"] = ''
+    result["rest"]["bird_id"] = []
+    result["rest"]["relationship_id"] = []
+    if "nest_id" in ipd:
+        # Get colors
+        try:
+            g.c.execute("SELECT * FROM nest WHERE id=" + ipd["nest_id"])
+            row = g.c.fetchone()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        ipd["color1"], ipd["color2"] = get_colors_from_band(row["band"])
+        ipd["location_id"] = row["location_id"]
+    else:
+        ipd["nest_id"] = None
+    name = ipd["start_date"].replace("-", "") + "_" + ipd["color1"] + ipd["number1"] \
+           + ipd["color2"] + ipd["number2"]
+    band = get_band_from_name(name)
+    #(species_id,name,band,nest_id,clutch_id,location_id,user_id,notes,alive,hatch_early,hatch_late)
+    try:
+        bind = (1, name, band, ipd["nest_id"], None, ipd["location_id"], user_id, ipd["notes"],
+                ipd["start_date"], ipd["stop_date"], ipd["sex"])
+        if app.config['DEBUG']:
+            print(WRITE["INSERT_BIRD"] % bind)
+        g.c.execute(WRITE["INSERT_BIRD"], bind)
+        result["rest"]["row_count"] += g.c.rowcount
+        bird_id = g.c.lastrowid
+        result["rest"]["bird_id"].append(bird_id)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    try:
+        if ipd["claim"]:
+            log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
+                           location_id=ipd["location_id"])
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+
+
 def register_birds(ipd, result):
     ''' Register one or more birds
         Keyword arguments:
@@ -550,7 +607,6 @@ def register_birds(ipd, result):
         Returns:
           Values added in result dict
     '''
-
     band, nest, loc_id = get_banding_and_location(ipd)
     # User
     user_id = None
@@ -569,7 +625,7 @@ def register_birds(ipd, result):
     for bird in band:
         try:
             bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id,
-                    user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"])
+                    user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"], None)
             if app.config['DEBUG']:
                 print(WRITE["INSERT_BIRD"] % bind)
             g.c.execute(WRITE["INSERT_BIRD"], bind)
@@ -1112,9 +1168,11 @@ def birds_in_location(location):
 
 
 @app.route('/newbird')
+@app.route('/newbirdnest')
 def add_bird():
-    ''' Register a new bird
+    ''' Register a new bird (requires existing nest)
     '''
+    template = request.path.replace("/", "") + ".html"
     user, face, permissions = get_user_profile()
     if not user:
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
@@ -1125,10 +1183,16 @@ def add_bird():
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
                                message="You don't have permission to register a new bird")
-    return render_template('newbird.html', urlroot=request.url_root, face=face,
+    color1 = color2 = ''
+    if request.path == "/newbird":
+        color1 = generate_color_pulldown("color1")
+        color2 = generate_color_pulldown("color2")
+    return render_template(template, urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
-                           nestselect=generate_nest_pulldown(["breeding"]))
+                           nestselect=generate_nest_pulldown(["breeding"]),
+                           location=generate_location_pulldown("location_id", False),
+                           color1=color1, color2=color2)
 
 
 @app.route('/clutchlist', methods=['GET', 'POST'])
@@ -1271,8 +1335,8 @@ def show_nest(nname):
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Nests', permissions),
-                           nest=nname, nprops=nprops, birds=birds, clutches=clutches,
-                           controls=controls)
+                           nest=nname, nest_id=nest['id'], nprops=nprops, birds=birds,
+                           clutches=clutches, controls=controls)
 
 
 @app.route('/newnest')
@@ -1340,7 +1404,8 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         for row in rows:
             fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'])
             if row["cnt"]:
-                row["cnt"] = '<a href="/birds/location/%s">%s</a>' % (row['display_name'], row['cnt'])
+                row["cnt"] = '<a href="/birds/location/%s">%s</a>' \
+                             % (row['display_name'], row['cnt'])
             delcol = ""
             if row['cnt'] == 0:
                 delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
@@ -2341,19 +2406,27 @@ def register_bird():
     result = initialize_result()
     ipd = receive_payload(result)
     check_dates(ipd)
+    ipd["claim"] = 0 # PLUG
     if not check_permission(result['rest']['user'], ['admin', 'edit', 'manager']):
         raise InvalidUsage("You don't have permission to register a bird")
-    check_missing_parms(ipd, ["clutch_id", "bands"])
-    try:
-        g.c.execute("SELECT * FROM clutch WHERE id=%s", (ipd["clutch_id"]))
-        row = g.c.fetchone()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    ipd["claim"] = 0
-    ipd["nest_id"] = row["nest_id"]
-    ipd["start_date"] = str(row['clutch_early']).split(' ', maxsplit=1)[0]
-    ipd["stop_date"] = str(row['clutch_late']).split(' ', maxsplit=1)[0]
-    register_birds(ipd, result)
+    if "clutch_id" in ipd:
+        check_missing_parms(ipd, ["bands"])
+        try:
+            g.c.execute("SELECT * FROM clutch WHERE id=%s", (ipd["clutch_id"]))
+            row = g.c.fetchone()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        ipd["nest_id"] = row["nest_id"]
+        ipd["start_date"] = str(row['clutch_early']).split(' ', maxsplit=1)[0]
+        ipd["stop_date"] = str(row['clutch_late']).split(' ', maxsplit=1)[0]
+        register_birds(ipd, result)
+    elif "nest_id" in ipd:
+        check_missing_parms(ipd, ["start_date", "stop_date", "sex", "number1", "number2"])
+        register_single_bird(ipd, result)
+    else:
+        check_missing_parms(ipd, ["start_date", "stop_date", "location_id", "sex",
+                                  "color1", "number1", "color2", "number2"])
+        register_single_bird(ipd, result)
     g.db.commit()
     return generate_response(result)
 
@@ -2954,5 +3027,5 @@ def delete_user_permission(): # pragma: no cover
 
 
 if __name__ == '__main__':
-    app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
-    #app.run(debug=True)
+    #app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
+    app.run(debug=True)
