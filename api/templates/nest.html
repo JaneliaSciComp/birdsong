@@ -26,6 +26,7 @@ function register_bird() {
            "stop_date": $('#stop').val(),
            "nest_id": $('#nest_id').val(),
            "sex": $('#sex').val(),
+           "claim": $('#claim').is(':checked') ? 1 : 0,
            "number1": $('#number1').val(),
            "number2": $('#number2').val(),
            "notes": $('#notes').val(),
@@ -189,7 +190,7 @@ onload="tableInitialize();"
   <h4>Optional parameters:</h4>
   <div class="grid-container" width="500">
     <div class="grid-item">Notes:</div>
-    <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+    <div class="grid-item"><input id="notes" class="form-control" onchange=""></div>
   </div>
   <br>
   <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_bird();" href="#">Register bird</button>

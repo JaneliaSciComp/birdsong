@@ -119,6 +119,7 @@ CREATE TABLE `bird` (
   `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `band` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `nest_id` int(10) unsigned,
+  `vendor_id` int(10) unsigned DEFAULT NULL,
   `clutch_id` int(10) unsigned,
   `tutor` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `location_id` int(10) unsigned NOT NULL,

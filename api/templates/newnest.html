@@ -20,6 +20,10 @@ function register_nest() {
     alert("A nest start date is required");
     return false;
   }
+  if ($('#location').val() == "") {
+    alert("Location is required");
+    return false;
+  }
   if ($('#color1').val() == "" || $('#color2').val() == "") {
     alert("Band colors are required");
     return false;
@@ -30,7 +34,7 @@ function register_nest() {
   array = {"start_date": $('#start').val(),
            "color1": $('#color1').val(),
            "color2": $('#color2').val(),
-           "location": $('#location').val(),
+           "location_id": $('#location').val(),
            "notes": $('#notes').val(),
           }
   if ($("input[name='nest_radio']:checked").val() == 'breeding') {
@@ -133,7 +137,7 @@ $('select').selectpicker();
     <div class="grid-item fostering" style="display: none">Female 3:</div>
     <div class="grid-item fostering" style="display: none">{{female3select | safe}}</div>
     <div class="grid-item">Notes:</div>
-    <div class="grid-item"><input id="notes" size=30 onchange=""></div>
+    <div class="grid-item"><input id="notes" class="form-control" onchange=""></div>
   </div>
   <br>
   <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_nest();" href="#">Register nest</button>

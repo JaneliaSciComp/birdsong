@@ -24,6 +24,8 @@ READ = {
     'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
              + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
              + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
+    'ISPARENT': "SELECT * FROM bird_relationship_vw WHERE type='genetic' AND (sire=%s "
+                "OR damsel=%s)",
     'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
                 + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
                 + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3,4",
@@ -31,8 +33,8 @@ READ = {
 }
 WRITE = {
     'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,"
-                   + "user_id,notes,alive,hatch_early,hatch_late,sex) VALUES "
-                   + "(%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s)",
+                   + "vendor_id,user_id,notes,alive,hatch_early,hatch_late,sex) VALUES "
+                   + "(%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s)",
     'INSERT_CV': "INSERT INTO cv (name,definition,display_name,version,"
                  + "is_current) VALUES (%s,%s,%s,%s,%s)",
     'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
@@ -239,8 +241,10 @@ def generate_birdlist_table(rows, showall=True):
             for col in ("nest", "notes", "sex", "username"):
                 if not row[col]:
                     row[col] = ""
-            outcol = [row['name'], row['band'], row['nest'], row['location'],
-                      row['sex'], row['notes'], row['current_age'], row['alive']]
+            if not row['nest_location']:
+                row['nest_location'] = 'Outside vendor'
+            outcol = [row['name'], row['band'], row['nest_location'] + ' ' + row['nest'],
+                      row['location'], row['sex'], row['notes'], row['current_age'], row['alive']]
             if showall:
                 outcol.insert(3, row["username"])
             fileoutput += ftemplate % tuple(outcol)
@@ -249,7 +253,7 @@ def generate_birdlist_table(rows, showall=True):
             if not row['alive']:
                 row['current_age'] = '-'
             alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            nest = row['nest_location'] + ' <a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
             outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
                       row['notes'], row['current_age'], alive]
             if showall:
@@ -284,10 +288,10 @@ def generate_clutchlist_table(rows):
         ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
             cnt = get_clutch_or_nest_count(row["id"])
-            fileoutput += ftemplate % (row['name'], row['nest'],
+            fileoutput += ftemplate % (row['name'], row['nest_location'] + ' ' + row['nest'],
                                        strip_time(row['clutch_early']),
                                        strip_time(row['clutch_late']), cnt, row['notes'])
-            nest = '<a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            nest = row['nest_location'] +  ' <a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
             clutch = colorband(row['name'], '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2))
             clutches += template % (clutch, nest, strip_time(row['clutch_early']),
                                     strip_time(row['clutch_late']), cnt, row['notes'])
@@ -323,8 +327,9 @@ def generate_nestlist_table(rows):
             fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
                                        row['damsel'], cnt, row['location'], row['notes'])
             nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))
-            sire = '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2)
-            damsel = '<a href="/bird/%s">%s</a>' % tuple([row['damsel']]*2)
+            sire = colorband(row['sire'], '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2))
+            damsel = colorband(row['damsel'], '<a href="/bird/%s">%s</a>' \
+                                              % tuple([row['damsel']]*2))
             nests += template % (nest, row['band'], sire, damsel,
                                  cnt, row['location'], row['notes'])
         nests += "</tbody></table>"
@@ -429,7 +434,7 @@ def generate_color_pulldown(sid, simple=False):
     else:
         controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
                    + 'Select a color...</option>'
-    for row in rows:
+    for row in sorted(rows, key=lambda d: d['cv_term']):
         controls += '<option value="%s">%s</option>' \
                     % (row["cv_term"], row["cv_term"])
     controls += "</select>"
@@ -499,10 +504,10 @@ def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
         Returns:
           HTML menu
     '''
-    sql = "SELECT id,name FROM nest WHERE active=1 AND "
+    sql = "SELECT id,name,location FROM nest_vw WHERE active=1 AND "
     clause = []
     if 'breeding' in ntype:
-        clause.append("(sire_id IS NOT NULL AND damsel_id IS NOT NULL AND breeding=1)")
+        clause.append("(sire IS NOT NULL AND damsel IS NOT NULL AND breeding=1)")
     if 'fostering' in ntype:
         clause.append("(fostering=1)")
     sql += " OR ".join(clause) + " ORDER BY 2"
@@ -521,9 +526,35 @@ def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
         controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
                    + 'Select a nest...</option>'
     for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row['id'], row['name'])
+        controls += '<option value="%s">%s %s</option>' \
+                    % (row['id'], row['location'], row['name'])
     controls += "</select><br><br>"
+    return controls
+
+
+def generate_vendor_pulldown(sid, simple=False):
+    ''' Generate pulldown menu of all vendors
+        Keyword arguments:
+          sid: select ID
+          simple: do not use Bootstrap controle
+        Returns:
+          HTML menu
+    '''
+    controls = ''
+    try:
+        rows = get_cv_terms('vendor')
+    except Exception as err:
+        return err
+    if simple:
+        controls = '<select id="%s"><option value="">' % (sid)\
+                   + 'Select a vendor...</option>'
+    else:
+        controls = '<select id="%s" class="form-control col-sm-10"><option value="">' % (sid)\
+                   + 'Select a vendor...</option>'
+    for row in rows:
+        controls += '<option value="%s">%s</option>' \
+                    % (row["id"], row["display_name"])
+    controls += "</select>"
     return controls
 
 
@@ -534,8 +565,8 @@ def generate_notes_field(this_id):
         Returns:
           HTML menu
     '''
-    controls = '<input type="text" id="notes" onchange="add_notes(' + str(this_id) \
-               + ',this);" class="form-control"/>'
+    controls = '<input type="text" class="form-control" id="notes" onchange="add_notes(' \
+               + str(this_id) + ',this);"/>'
     return controls
 
 
@@ -923,6 +954,29 @@ def clutch_summary_query(ipd):
         where = ' AND '.join(clause)
         sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
     return sql
+
+
+def create_relationship(ipd, result, bird_id, nest):
+    ''' Create a bird relationship
+        Keyword arguments:
+          ipd: request payload
+          result: result dictionary
+          bird_id: bird ID
+          nest: nest record
+        Returns:
+          SQL query
+    '''
+    sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
+          + "VALUES ('genetic',%s,%s,%s,%s)"
+    try:
+        bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
+        if app.config["DEBUG"]:
+            print(sql, bind)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+        result["rest"]["relationship_id"].append(g.c.lastrowid)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
 
 
 def execute_sql(result, sql, debug, container="data"):

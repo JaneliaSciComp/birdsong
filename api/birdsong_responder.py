@@ -241,22 +241,34 @@ def get_bird_properties(bird, user, permissions):
         Returns: HTML
     '''
     bprops = []
-    bprops.append(["Name:", colorband(bird["name"], bird["name"])])
+    parent = ""
+    if bird["sex"]:
+        try:
+            g.c.execute(READ["ISPARENT"], tuple([bird["name"]]*2))
+            rows = g.c.fetchall()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        if rows:
+            parent = " (%s)" % ("sire" if bird["sex"] == "M" else "damsel")
+    bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
     bprops.append(["Band:", bird["band"]])
     if bird["clutch"]:
         bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
     else:
         bprops.append(["Clutch:", "None"])
     if bird["nest"]:
-        bprops.append(["Nest:", '<a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
+        bprops.append(["Nest:", bird["nest_location"] \
+                      + ' <a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
     else:
-        bprops.append(["Nest:", "None"])
+        bprops.append(["Nest:", "Outside vendor"])
+    if bird["vendor"]:
+        bprops.append(["Vendor:", bird["vendor"]])
     bprops.append(["Location:", bird['location']])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
     birdsex = bird["sex"]
     if (not birdsex) and bird["alive"] and \
-       set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
+       (set(['admin', 'manager']).intersection(permissions) or user == bird["user"]):
         birdsex = generate_sex_pulldown(bird["id"])
     bprops.append(["Sex:", birdsex])
     if bird["sire"]:
@@ -559,6 +571,8 @@ def register_single_bird(ipd, result):
             user_id = row["id"]
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
+    if ("vendor_id" not in ipd) or (not ipd["vendor_id"]):
+        ipd["vendor_id"] = None
     result['rest']['row_count'] = 0
     # Notes
     if ("notes" not in ipd) or (not ipd["notes"]):
@@ -569,20 +583,19 @@ def register_single_bird(ipd, result):
         # Get colors
         try:
             g.c.execute("SELECT * FROM nest WHERE id=" + ipd["nest_id"])
-            row = g.c.fetchone()
+            nest = g.c.fetchone()
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        ipd["color1"], ipd["color2"] = get_colors_from_band(row["band"])
-        ipd["location_id"] = row["location_id"]
+        ipd["color1"], ipd["color2"] = get_colors_from_band(nest["band"])
+        ipd["location_id"] = nest["location_id"]
     else:
         ipd["nest_id"] = None
     name = ipd["start_date"].replace("-", "") + "_" + ipd["color1"] + ipd["number1"] \
            + ipd["color2"] + ipd["number2"]
     band = get_band_from_name(name)
-    #(species_id,name,band,nest_id,clutch_id,location_id,user_id,notes,alive,hatch_early,hatch_late)
     try:
-        bind = (1, name, band, ipd["nest_id"], None, ipd["location_id"], user_id, ipd["notes"],
-                ipd["start_date"], ipd["stop_date"], ipd["sex"])
+        bind = (1, name, band, ipd["nest_id"], None, ipd["location_id"], ipd["vendor_id"],
+                user_id, ipd["notes"], ipd["start_date"], ipd["stop_date"], ipd["sex"])
         if app.config['DEBUG']:
             print(WRITE["INSERT_BIRD"] % bind)
         g.c.execute(WRITE["INSERT_BIRD"], bind)
@@ -591,6 +604,11 @@ def register_single_bird(ipd, result):
         result["rest"]["bird_id"].append(bird_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
+    if ipd["nest_id"]:
+        try:
+            create_relationship(ipd, result, bird_id, nest)
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
     try:
         if ipd["claim"]:
             log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
@@ -624,7 +642,7 @@ def register_birds(ipd, result):
     result["rest"]["relationship_id"] = []
     for bird in band:
         try:
-            bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id,
+            bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id, None,
                     user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"], None)
             if app.config['DEBUG']:
                 print(WRITE["INSERT_BIRD"] % bind)
@@ -634,15 +652,7 @@ def register_birds(ipd, result):
             result["rest"]["bird_id"].append(bird_id)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
-              + "VALUES ('genetic',%s,%s,%s,%s)"
-        try:
-            bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
-            g.c.execute(sql, bind)
-            result["rest"]["row_count"] += g.c.rowcount
-            result["rest"]["relationship_id"].append(g.c.lastrowid)
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
+        create_relationship(ipd, result, bird_id, nest)
     try:
         for bird_id in result["rest"]["bird_id"]:
             log_bird_event(bird_id, user=result['rest']['user'], nest_id=ipd["nest_id"],
@@ -701,14 +711,15 @@ def generate_navbar(active, permissions=None):
     '''
     for heading in ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Users']:
         basic = '<li class="nav-item active">' if heading == active else '<li class="nav-item">'
-        if heading == 'Birdsxxx' and set(['admin', 'manager']).intersection(permissions):
+        if heading == 'Birds' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
             nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
                    + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
                    + 'aria-expanded="false">Birds</a><div class="dropdown-menu" '\
                    + 'aria-labelledby="navbarDropdown">'
-            nav += '<a class="dropdown-item" href="/birdlist">Show</a>'
+            nav += '<a class="dropdown-item" href="/birdlist">Show</a>' \
+                   + '<a class="dropdown-item" href="/newbird">Add</a>'
             nav += '</div></li>'
         elif heading == 'Clutches' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
@@ -1192,6 +1203,7 @@ def add_bird():
                            navbar=generate_navbar('Birds', permissions),
                            nestselect=generate_nest_pulldown(["breeding"]),
                            location=generate_location_pulldown("location_id", False),
+                           vendor=generate_vendor_pulldown("vendor_id"),
                            color1=color1, color2=color2)
 
 
@@ -2405,7 +2417,6 @@ def register_bird():
     result = initialize_result()
     ipd = receive_payload(result)
     check_dates(ipd)
-    ipd["claim"] = 0 # PLUG
     if not check_permission(result['rest']['user'], ['admin', 'edit', 'manager']):
         raise InvalidUsage("You don't have permission to register a bird")
     if "clutch_id" in ipd:
@@ -2420,10 +2431,11 @@ def register_bird():
         ipd["stop_date"] = str(row['clutch_late']).split(' ', maxsplit=1)[0]
         register_birds(ipd, result)
     elif "nest_id" in ipd:
+        print(ipd)
         check_missing_parms(ipd, ["start_date", "stop_date", "sex", "number1", "number2"])
         register_single_bird(ipd, result)
     else:
-        check_missing_parms(ipd, ["start_date", "stop_date", "location_id", "sex",
+        check_missing_parms(ipd, ["start_date", "stop_date", "location_id", "vendor_id",
                                   "color1", "number1", "color2", "number2"])
         register_single_bird(ipd, result)
     g.db.commit()
@@ -2698,7 +2710,7 @@ def register_nest():
     ipd = receive_payload(result)
     if not check_permission(result['rest']['user'], ['admin', 'edit']):
         raise InvalidUsage("You don't have permission to register a nest")
-    check_missing_parms(ipd, ["start_date", "color1", "color2", "location"])
+    check_missing_parms(ipd, ["start_date", "color1", "color2", "location_id"])
     check_dates(ipd)
     result['rest']['row_count'] = 0
     name, band = get_banding(ipd)
@@ -2712,11 +2724,11 @@ def register_nest():
         sql = "INSERT INTO nest (name,band,female1_id,female2_id,female3_id,fostering," \
               + "location_id,notes,create_date) VALUES (%s,%s,%s,%s,%s,1,%s,%s,%s)"
         bind = (name, band, ipd["female1_id"], ipd["female2_id"], ipd["female3_id"],
-                ipd["location"], ipd['notes'], ipd["start_date"])
+                ipd["location_id"], ipd['notes'], ipd["start_date"])
     else:
         sql = "INSERT INTO nest (name,band,sire_id,damsel_id,breeding,location_id,notes," \
               + "create_date) VALUES (%s,%s,%s,%s,1,%s,%s,%s)"
-        bind = (name, band, ipd["sire_id"], ipd["damsel_id"], ipd["location"], ipd['notes'],
+        bind = (name, band, ipd["sire_id"], ipd["damsel_id"], ipd["location_id"], ipd['notes'],
                 ipd["start_date"])
     try:
         print(sql % bind)
@@ -2736,7 +2748,7 @@ def register_nest():
     for bird_id in birds_to_assign:
         try:
             g.c.execute("UPDATE bird SET nest_id=%s,location_id=%s WHERE id=%s",
-                        (result["rest"]["nest_id"], ipd["location"], bird_id))
+                        (result["rest"]["nest_id"], ipd["location_id"], bird_id))
             result["rest"]["row_count"] += g.c.rowcount
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
