@@ -195,13 +195,22 @@ onload="tableInitialize();"
 
 {% block content %}
   <h2>Bird {{ bird }}</h2>
-  <table id='birdprops' class="property">
-  <tbody>
-  {% for row in bprops %}
-    <tr><td>{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
-  {% endfor %}
-  </tbody>
-  </table>
+  <div class="flexcontainertop">
+    <div class="flexitem">
+      <table id='birdprops' class="property">
+      <tbody>
+      {% for row in bprops %}
+        <tr><td>{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
+      {% endfor %}
+      </tbody>
+      </table>
+    </div>
+    <div class="flexitem" style="margin-left: 200px">
+    </div>
+    <div class="flexitem">
+      {{sessions|safe}}
+    </div>
+  </div>
   {{controls|safe}}
   {{events|safe}}
 {% endblock %}

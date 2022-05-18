@@ -25,7 +25,7 @@ from oauthlib.oauth2 import WebApplicationClient
 import birdsong_utilities
 from birdsong_utilities import *
 
-# pylint: disable=C0302, C0103, W0703
+# pylint: disable=C0209, C0302, C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
@@ -230,6 +230,54 @@ def get_bird_events(bird):
             events += template % tuple(outcol)
         events += "</tbody></table>"
     return events
+
+
+def get_bird_sessions(bird):
+    ''' Get a bird's experimental; sessions
+        Keyword arguments:
+          bird: bird record
+        Returns: HTML
+    '''
+    sessions = ""
+    try:
+        g.c.execute("SELECT cv,type FROM session_vw WHERE bird=%s ORDER BY 1,2", bird["name"])
+        rows = g.c.fetchall()
+        print(rows)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if not rows:
+        return ""
+    sessions = """
+    <h3>Experimental sessions</h3>
+    <table id='sessions' class="property">
+    <tbody>
+    """
+    try:
+        g.c.execute("SELECT * FROM score_vw WHERE bird=%s ORDER BY cv,type", bird["name"])
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    head = False
+    for row in rows:
+        if not head:
+            sessions += "<tr><td><h5>%s</h5></td></tr>" % (row["cv"])
+            head = True
+        sessions += "<tr><td>&nbsp;&nbsp;%s:</td><td>%s</td></tr>" % (row["type"], row["value"])
+    # Genotype
+    try:
+        g.c.execute("SELECT COUNT(1) AS count FROM state_vw WHERE bird=%s AND state != './.'",
+                    bird["name"])
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if row:
+        sessions += "<tr><td><h5>Genotype</h5></td></tr>"
+        sessions += "<tr><td>&nbsp;&nbsp;Markers:</td><td>%s</td></tr>" % (row["count"])
+    sessions += """
+    <tbody>
+    </table>
+    """
+    return sessions
 
 
 def get_bird_properties(bird, user, permissions):
@@ -1121,13 +1169,15 @@ def show_bird(bname):
         controls = controls % (bird['id'])
     try:
         bprops, events = get_bird_properties(bird, user, permissions)
+        sessions = get_bird_sessions(bird)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     return render_template('bird.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
-                           bird=bname, bprops=bprops, events=events, controls=controls)
+                           bird=bname, bprops=bprops, sessions=sessions,
+                           events=events, controls=controls)
 
 
 @app.route('/birds/location/<string:location>', methods=['GET'])
@@ -1834,7 +1884,7 @@ def get_view_columns(table=""):
 def get_view_rows(table=""):
     '''
     Get view/table rows (with filtering)
-    Return rows from  a specified view/table. The caller can filter on any of the
+    Return rows from a specified view/table. The caller can filter on any of the
     columns in the view/table. Inequalities (!=) and some relational operations
     (&lt;= and &gt;=) are supported. Wildcards are supported (use "*").
     Specific columns from the view/table can be returned with the _columns key.
@@ -1862,6 +1912,58 @@ def get_view_rows(table=""):
     if view in app.config["VIEWS"]:
         table = view
     execute_sql(result, f"SELECT * FROM {table}", app.config["DEBUG"])
+    return generate_response(result)
+
+
+@app.route('/view/group/<string:table>', methods=['GET'])
+def get_view_group_rows(table=""):
+    '''
+    Get grouped by view/table rows (with filtering)
+    Return rows from a specified view/table. The caller can filter on any of the
+    columns in the view/table. Inequalities (!=) and some relational operations
+    (&lt;= and &gt;=) are supported. Wildcards are supported (use "*").
+    Specific columns from the view/table can be returned with the _columns key.
+    The returned list may be ordered by specifying a column with the _sort key.
+    In both cases, multiple columns would be separated by a comma.
+    ---
+    tags:
+      - Table
+    parameters:
+      - in: path
+        name: table
+        schema:
+          type: string
+        required: true
+        description: table or view name
+    responses:
+      200:
+          description: rows from specified view
+      404:
+          description: Rows not found
+    '''
+    result = initialize_result()
+    table = re.sub("[?;].*", "", table)
+    view = table + "_vw"
+    if view in app.config["VIEWS"]:
+        table = view
+    whatl = []
+    if request.query_string:
+        query_string = request.query_string
+        if not isinstance(query_string, str):
+            query_string = query_string.decode('utf-8')
+        ipd = parse_qs(query_string)
+    for key, val in ipd.items():
+        if key == '_columns':
+            whatl.append(val[0])
+    print(whatl)
+    if not whatl:
+        result["rest"]["error"] = "No columns were specified"
+        return generate_response(result)
+    ccount = len(",".join(whatl).split(","))
+    group = ','.join([str(itm) for itm in list(range(1,ccount+1))])
+    what = ",".join(whatl) + ",COUNT(1) AS count"
+    execute_sql(result, f"SELECT {what} FROM {table}", app.config["DEBUG"],
+                "data", group)
     return generate_response(result)
 
 

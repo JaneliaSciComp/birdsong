@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 from flask import g, request
 import requests
 
-# pylint: disable=C0302, W0703
+# pylint: disable=C0209, C0302, W0703
 
 CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
 BEARER = ""
@@ -970,8 +970,6 @@ def create_relationship(ipd, result, bird_id, nest):
           + "VALUES ('genetic',%s,%s,%s,%s)"
     try:
         bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
-        if app.config["DEBUG"]:
-            print(sql, bind)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
         result["rest"]["relationship_id"].append(g.c.lastrowid)
@@ -979,7 +977,7 @@ def create_relationship(ipd, result, bird_id, nest):
         raise InvalidUsage(sql_error(err), 500) from err
 
 
-def execute_sql(result, sql, debug, container="data"):
+def execute_sql(result, sql, debug, container="data", group=None):
     ''' Build and execute a SQL statement.
         Keyword arguments:
           result: result dictionary
@@ -990,6 +988,13 @@ def execute_sql(result, sql, debug, container="data"):
           True if successful
     '''
     sql, bind = generate_sql(result, sql)
+    if group:
+        add = " GROUP BY %s" % (group)
+        if "ORDER BY" in sql:
+            print("Order")
+            sql = sql.replace("ORDER BY", add + " ORDER BY")
+        else:
+            sql += add
     if debug: # pragma: no cover
         if bind:
             print(sql % bind)
