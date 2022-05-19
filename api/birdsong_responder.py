@@ -16,16 +16,17 @@ from flask.json import JSONEncoder
 from flask_cors import CORS
 from flask_swagger import swagger
 import jwt
+import numpy as np
 import pymysql.cursors
 import pymysql.err
 import requests
-from oauthlib.oauth2 import WebApplicationClient
+from oauthlib.oauth2 import WebApplicationClient  # pylint: disable=E0401
 
 # pylint: disable=W0401, W0614
 import birdsong_utilities
 from birdsong_utilities import *
 
-# pylint: disable=C0209, C0302, C0103, W0703
+# pylint: disable=C0302, C0103, W0703
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
@@ -280,26 +281,35 @@ def get_bird_sessions(bird):
     return sessions
 
 
-def get_bird_properties(bird, user, permissions):
-    ''' Get a bird's properties
+def get_bird_nest_info(bname):
+    ''' Given a bird name, return bird and nest records
         Keyword arguments:
-          bird: bird record
-          user: user
-          permissions: user permissions
-        Returns: HTML
+          bname: bird name
+        Returns: bird and nest records
     '''
-    bprops = []
-    parent = ""
-    if bird["sex"]:
-        try:
-            g.c.execute(READ["ISPARENT"], tuple([bird["name"]]*2))
-            rows = g.c.fetchall()
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
-        if rows:
-            parent = " (%s)" % ("sire" if bird["sex"] == "M" else "damsel")
-    bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
-    bprops.append(["Band:", bird["band"]])
+    try:
+        bird = get_record(bname, "bird")
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    if not bird:
+        return None, None
+    try:
+        g.c.execute("SELECT * FROM bird WHERE name=%s", (bname,))
+        nest = g.c.fetchone()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    return bird, nest
+
+
+def populate_bird_locations(bprops, bird):
+    ''' Populate bird location data (including clutch and nest)
+        Keyword arguments:
+          bprops: bird property list
+          bird: bird record
+        Returns: additionalinformation in bprops list
+    '''
     if bird["clutch"]:
         bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
     else:
@@ -314,6 +324,18 @@ def get_bird_properties(bird, user, permissions):
     bprops.append(["Location:", bird['location']])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
+
+
+def populate_bird_properties(bprops, bird, user, permissions):
+    ''' Populate bird properties (minus the bird_property table)
+        Keyword arguments:
+          bprops: bird property list
+          bird: bird record
+          user: user
+          permissions: user permissions
+        Returns: additionalinformation in bprops list
+    '''
+    populate_bird_locations(bprops, bird)
     birdsex = bird["sex"]
     if (not birdsex) and bird["alive"] and \
        (set(['admin', 'manager']).intersection(permissions) or user == bird["user"]):
@@ -341,6 +363,29 @@ def get_bird_properties(bird, user, permissions):
        set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
         birdnotes = generate_notes_field(bird["id"])
     bprops.append(["Notes:", birdnotes])
+
+
+def get_bird_properties(bird, user, permissions):
+    ''' Get a bird's properties
+        Keyword arguments:
+          bird: bird record
+          user: user
+          permissions: user permissions
+        Returns: additionalinformation in bprops list
+    '''
+    bprops = []
+    parent = ""
+    if bird["sex"]:
+        try:
+            g.c.execute(READ["ISPARENT"], tuple([bird["name"]]*2))
+            rows = g.c.fetchall()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        if rows:
+            parent = " (%s)" % ("sire" if bird["sex"] == "M" else "damsel")
+    bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
+    bprops.append(["Band:", bird["band"]])
+    populate_bird_properties(bprops, bird, user, permissions)
     try:
         g.c.execute("SELECT type_display,value FROM bird_property_vw WHERE name=%s"
                     "ORDER BY 1", (bird["name"],))
@@ -358,6 +403,32 @@ def get_bird_properties(bird, user, permissions):
         raise err
 
 
+def set_claim_notes(ipd, result, user_id):
+    ''' Set claim and notes info for a bird
+        Keyword arguments:
+          ipd: request payload
+          result: result dictionary
+          user_id: user ID
+        Returns:
+          Values added to ipd and result dicts, user_id
+    '''
+    if ipd["claim"]:
+        try:
+            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
+            row = g.c.fetchone()
+            user_id = row["id"]
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+    if ("vendor_id" not in ipd) or (not ipd["vendor_id"]):
+        ipd["vendor_id"] = None
+    result['rest']['row_count'] = 0
+    # Notes
+    if ("notes" not in ipd) or (not ipd["notes"]):
+        ipd["notes"] = ''
+    result["rest"]["bird_id"] = []
+    result["rest"]["relationship_id"] = []
+
+
 def get_birds_in_clutch_or_nest(rec, dnd, ttype):
     ''' Get the birds in a nest
         Keyword arguments:
@@ -367,11 +438,8 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
         Returns:
           Birds in nest
     '''
-    sql = "SELECT * FROM bird_vw WHERE " + ttype + "=%s ORDER BY 1"
     try:
-        if app.config['DEBUG']:
-            print(sql % (rec["name"]))
-        g.c.execute(sql, (rec["name"],))
+        g.c.execute("SELECT * FROM bird_vw WHERE " + ttype + "=%s ORDER BY 1", (rec["name"],))
         irows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -602,6 +670,24 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
         raise err
 
 
+def claim_single_bird(bird_id, user, location_id=None):
+    ''' Register one bird (no clutch or nest)
+        Keyword arguments:
+          bid_id: bird ID
+          user: user name
+          location_id: location ID
+        Returns:
+          None
+    '''
+    sql = "UPDATE bird SET user_id=(SELECT id FROM user WHERE name=%s) WHERE id=%s"
+    try:
+        bind = (user, bird_id)
+        g.c.execute(sql, bind)
+        log_bird_event(bird_id, status="claimed", user=user, location_id=location_id)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+
+
 def register_single_bird(ipd, result):
     ''' Register one bird (no clutch or nest)
         Keyword arguments:
@@ -610,23 +696,8 @@ def register_single_bird(ipd, result):
         Returns:
           Values added in result dict
     '''
-    # User/claim
     user_id = None
-    if ipd["claim"]:
-        try:
-            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
-            row = g.c.fetchone()
-            user_id = row["id"]
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
-    if ("vendor_id" not in ipd) or (not ipd["vendor_id"]):
-        ipd["vendor_id"] = None
-    result['rest']['row_count'] = 0
-    # Notes
-    if ("notes" not in ipd) or (not ipd["notes"]):
-        ipd["notes"] = ''
-    result["rest"]["bird_id"] = []
-    result["rest"]["relationship_id"] = []
+    set_claim_notes(ipd, result, user_id)
     if "nest_id" in ipd:
         # Get colors
         try:
@@ -659,8 +730,7 @@ def register_single_bird(ipd, result):
             raise InvalidUsage(sql_error(err), 500) from err
     try:
         if ipd["claim"]:
-            log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
-                           location_id=ipd["location_id"])
+            claim_single_bird(bird_id, result['rest']['user'], ipd["location_id"])
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
 
@@ -676,18 +746,7 @@ def register_birds(ipd, result):
     band, nest, loc_id = get_banding_and_location(ipd)
     # User
     user_id = None
-    if ipd["claim"]:
-        try:
-            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
-            row = g.c.fetchone()
-            user_id = row["id"]
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
-    result['rest']['row_count'] = 0
-    if ("notes" not in ipd) or (not ipd["notes"]):
-        ipd["notes"] = ''
-    result["rest"]["bird_id"] = []
-    result["rest"]["relationship_id"] = []
+    set_claim_notes(ipd, result, user_id)
     for bird in band:
         try:
             bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id, None,
@@ -1074,7 +1133,7 @@ def download(fname):
     ''' Downloadable content
     '''
     try:
-        return send_file('/tmp/' + fname, download_name=fname)
+        return send_file('/tmp/' + fname, download_name=fname)  # pylint: disable=E1123
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title='Download error', message=err)
@@ -1122,7 +1181,7 @@ def show_birds(): # pylint: disable=R0914,R0912,R0915
 
 
 @app.route('/bird/<string:bname>')
-def show_bird(bname):
+def show_bird(bname): # pylint: disable=R0911
     ''' Show information for a bird
     '''
     user, face, permissions = get_user_profile()
@@ -1132,19 +1191,13 @@ def show_bird(bname):
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message="User %s is not registered" % user)
     try:
-        bird = get_record(bname, "bird")
+        bird, nest = get_bird_nest_info(bname)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     if not bird:
         return render_template("error.html", urlroot=request.url_root,
                                title='Not found', message="Bird %s was not found" % bname)
-    try:
-        g.c.execute("SELECT * FROM bird WHERE name=%s", (bname,))
-        nest = g.c.fetchone()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
     controls = '<br>'
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
         if bird["user"] == user:
@@ -1824,7 +1877,6 @@ def testothererror():
 # * Table/view endpoints                                                      *
 # *****************************************************************************
 
-
 @app.route('/tables', methods=['GET'])
 def get_tables():
     '''
@@ -1960,7 +2012,7 @@ def get_view_group_rows(table=""):
         result["rest"]["error"] = "No columns were specified"
         return generate_response(result)
     ccount = len(",".join(whatl).split(","))
-    group = ','.join([str(itm) for itm in list(range(1,ccount+1))])
+    group = ','.join([str(itm) for itm in list(range(1, ccount+1))])
     what = ",".join(whatl) + ",COUNT(1) AS count"
     execute_sql(result, f"SELECT {what} FROM {table}", app.config["DEBUG"],
                 "data", group)
@@ -2417,12 +2469,9 @@ def claim_bird(bird_id):
     if not check_permission(result["rest"]["user"], ["admin", "edit", 'manager']):
         raise InvalidUsage("You don't have permission to claim a bird")
     result["rest"]["row_count"] = 0
-    sql = "UPDATE bird SET user_id=(SELECT id FROM user WHERE name=%s) WHERE id=%s"
     try:
-        bind = (result["rest"]["user"], bird_id)
-        g.c.execute(sql, bind)
-        result["rest"]["row_count"] += g.c.rowcount
-        log_bird_event(bird_id, status="claimed", user=result['rest']['user'], location_id=None)
+        claim_single_bird(bird_id, user=result['rest']['user'])
+        result["rest"]["row_count"] = 0
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     g.db.commit()
@@ -2533,7 +2582,6 @@ def register_bird():
         ipd["stop_date"] = str(row['clutch_late']).split(' ', maxsplit=1)[0]
         register_birds(ipd, result)
     elif "nest_id" in ipd:
-        print(ipd)
         check_missing_parms(ipd, ["start_date", "stop_date", "sex", "number1", "number2"])
         register_single_bird(ipd, result)
     else:
@@ -2859,7 +2907,7 @@ def register_nest():
 
 
 # *****************************************************************************
-# * User endpoints                                                            *
+# * Location endpoints                                                        *
 # *****************************************************************************
 
 @app.route('/addlocation', methods=['OPTIONS', 'POST'])
@@ -3135,6 +3183,43 @@ def delete_user_permission(): # pragma: no cover
     g.db.commit()
     return generate_response(result)
 
+
+# *****************************************************************************
+# * Analysis endpoints                                                        *
+# *****************************************************************************
+
+@app.route('/marker/<string:marker>', methods=['GET'])
+def get_marker(marker=""):
+    '''
+    Get marker information
+    Return information on a genetic marker.
+    ---
+    tags:
+      - Allelic state
+    parameters:
+      - in: path
+        name: marker
+        schema:
+          type: string
+        required: true
+        description: marker
+    '''
+    result = initialize_result()
+    execute_sql(result, f"SELECT * FROM phenotype_state_mv WHERE marker={marker}",
+                app.config["DEBUG"], "temp")
+    result["data"] = []
+    for row in result["temp"]:
+        lst = [float(num) for num in row["svalues"].split(",")]
+        vari = np.var(lst)
+        stdev = np.std(lst)
+        result["data"].append({"type": row["type"],
+                               "state": row["state"],
+                               "count": row["count"],
+                               "stdev": stdev,
+                               "variance": vari
+                              })
+    del result["temp"]
+    return generate_response(result)
 
 # *****************************************************************************
 

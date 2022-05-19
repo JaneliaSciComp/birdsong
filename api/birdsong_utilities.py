@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 from flask import g, request
 import requests
 
-# pylint: disable=C0209, C0302, W0703
+# pylint: disable=C0302, W0703
 
 CONFIG = {'config': {"url": "http://config.int.janelia.org/"}}
 BEARER = ""
