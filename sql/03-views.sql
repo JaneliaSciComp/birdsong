@@ -279,6 +279,32 @@ JOIN session ss ON (s.session_id=ss.id)
 JOIN bird b ON (ss.bird_id=b.id)
 ;
 
+DROP TABLE IF EXISTS phenotype_state_mv;
+CREATE TABLE phenotype_state_mv (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `marker` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `svalues` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `count` int(10) unsigned,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=60 DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+  
+CREATE OR REPLACE VIEW phenotype_state_build_vw AS
+SELECT c.display_name AS type
+       ,marker
+       ,state
+       ,GROUP_CONCAT(value) AS svalues
+       ,COUNT(1) AS count
+FROM state st
+JOIN session ss1 ON (st.session_id=ss1.id)
+JOIN score sc
+JOIN cv_term c ON (sc.type_id=c.id)
+JOIN session ss2 ON (sc.session_id=ss2.id AND ss1.bird_id=ss2.bird_id)
+group by 1,2,3
+;
+
 CREATE OR REPLACE VIEW user_vw AS
 SELECT u.name
       ,first

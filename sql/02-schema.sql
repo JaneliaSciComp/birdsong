@@ -357,6 +357,21 @@ CREATE TABLE `state` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for naterialized view `phenotype_state_mv`
+--
+DROP TABLE IF EXISTS phenotype_state_mv;
+CREATE TABLE phenotype_state_mv (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `marker` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `svalues` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `count` int(10) unsigned,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=60 DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `user`
 --
 DROP TABLE IF EXISTS `user`;
