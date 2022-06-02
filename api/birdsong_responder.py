@@ -1749,8 +1749,8 @@ def dbstats():
     '''
     result = initialize_result()
     sql = "SELECT TABLE_NAME,TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE " \
-          + "TABLE_SCHEMA='assignment' AND TABLE_NAME NOT LIKE '%vw'"
-    g.c.execute(sql)
+          + "TABLE_SCHEMA=%s AND TABLE_NAME NOT LIKE '%%vw'"
+    g.c.execute(sql, app.config["MYSQL_DATABASE_DB"])
     rows = g.c.fetchall()
     result['rest']['row_count'] = len(rows)
     result['rest']['sql_statement'] = g.c.mogrify(sql)
