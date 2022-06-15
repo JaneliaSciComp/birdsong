@@ -455,7 +455,6 @@ def generate_location_pulldown(sid, used=True, simple=False):
             g.c.execute(READ["INUSE"])
             rows = g.c.fetchall()
         else:
-            g.c.execute(READ["INUSE"])
             rows = get_cv_terms('location')
     except Exception as err:
         return err
@@ -1059,7 +1058,7 @@ def get_cv_terms(ccv):
     '''
     try:
         g.c.execute("SELECT id,cv_term,display_name,definition FROM cv_term_vw " \
-                    + "WHERE cv=%s ORDER BY 1", (ccv))
+                    + "WHERE cv=%s ORDER BY display_name", (ccv))
         rows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err

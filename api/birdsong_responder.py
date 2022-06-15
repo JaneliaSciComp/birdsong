@@ -243,7 +243,6 @@ def get_bird_sessions(bird):
     try:
         g.c.execute("SELECT cv,type FROM session_vw WHERE bird=%s ORDER BY 1,2", bird["name"])
         rows = g.c.fetchall()
-        print(rows)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     if not rows:
