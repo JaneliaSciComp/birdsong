@@ -120,6 +120,30 @@ def colorband(name, text=None, big=False):
     return html
 
 
+def convert_banding(term):
+    ''' Convert a banding style - accepts bands with long or short colors,
+        and returns short or long colors. For example, passing in
+        "20210506_red32blue45" will return "20210506_rd32bu45".
+        Keyword arguments:
+          term: name with upper/lower bands
+        Returns:
+          Converted name
+    '''
+    rows = get_cv_terms("color")
+    color = {}
+    for row in rows:
+        color[row['cv_term']] = row['display_name']
+    match = re.findall(r"([a-z]+)(\d+)([a-z]+)(\d+)$", term)[0]
+    original = "".join(match)
+    newterm = ""
+    # If the input banding has short colors, invert the color dict
+    if not(match[0] in color and match[2] in color):
+        color = {color[k] : k for k in color}
+    newterm = term.replace(original, "".join([color[match[0]], match[1],
+                                              color[match[2]], match[3]]))
+    return newterm
+
+
 def get_banding(ipd):
     ''' Get banding and nest information
         Keyword arguments:
@@ -140,37 +164,6 @@ def get_banding(ipd):
     name = "".join([ipd["start_date"].replace("-", ""), "_", ipd["color1"], ipd["color2"]])
     band = color[ipd["color1"]] + color[ipd["color2"]]
     return name, band
-
-
-def get_band_from_name(name):
-    ''' Given a bird name, return the band
-        Keyword arguments:
-          name: bird name
-        Returns:
-          band: band
-    '''
-    color = {}
-    rows = get_cv_terms("color")
-    for row in rows:
-        color[row['cv_term']] = row['display_name']
-    field = re.findall(r"([a-z]+|\d+)", name)
-    band = color[field[1]] + field[2] + color[field[3]] + field[4]
-    return band
-
-
-def get_colors_from_band(band):
-    ''' Given a nest band, return the colors
-        Keyword arguments:
-          name: nest band
-        Returns:
-          colors: array of colors
-    '''
-    color = {}
-    rows = get_cv_terms("color")
-    for row in rows:
-        color[row['display_name']] = row['cv_term']
-    field = re.findall(r"([a-z][a-z])", band)
-    return [color[field[0]], color[field[1]]]
 
 
 def get_banding_and_location(ipd):
@@ -209,6 +202,37 @@ def get_banding_and_location(ipd):
                         color2, barr[1]])
         band.append({"name": name, "band": nband})
     return band, nest, loc_id
+
+    
+def get_band_from_name(name):
+    ''' Given a bird name, return the band (with short colors)
+        Keyword arguments:
+          name: bird name
+        Returns:
+          band: band
+    '''
+    color = {}
+    rows = get_cv_terms("color")
+    for row in rows:
+        color[row['cv_term']] = row['display_name']
+    field = re.findall(r"([a-z]+|\d+)", name)
+    band = color[field[1]] + field[2] + color[field[3]] + field[4]
+    return band
+
+
+def get_colors_from_band(band):
+    ''' Given a nest band, return the colors
+        Keyword arguments:
+          name: nest band
+        Returns:
+          colors: array of colors
+    '''
+    color = {}
+    rows = get_cv_terms("color")
+    for row in rows:
+        color[row['display_name']] = row['cv_term']
+    field = re.findall(r"([a-z][a-z])", band)
+    return [color[field[0]], color[field[1]]]
 
 
 # *****************************************************************************
