@@ -204,26 +204,30 @@ def get_banding_and_location(ipd):
     return band, nest, loc_id
 
     
-def get_band_from_name(name):
-    ''' Given a bird name, return the band (with short colors)
+def parse_bird_name(name):
+    ''' Parse a given bird name (standard format: "20210506_red32blue45") into its components
         Keyword arguments:
           name: bird name
         Returns:
-          band: band
+          dict of bird name components
     '''
     color = {}
     rows = get_cv_terms("color")
     for row in rows:
         color[row['cv_term']] = row['display_name']
     field = re.findall(r"([a-z]+|\d+)", name)
-    band = color[field[1]] + field[2] + color[field[3]] + field[4]
-    return band
+    hash = {"date": field[0]}
+    hash["band"] = color[field[1]] + field[2] + color[field[3]] + field[4]
+    hash["color"] = {"upper": field[1], "lower": field[3]}
+    hash["abbreviation"] = {"upper": color[field[1]], "lower": color[field[3]]}
+    hash["number"] = {"upper": field[2], "lower": field[4]}
+    return hash
 
 
-def get_colors_from_band(band):
-    ''' Given a nest band, return the colors
+def parse_nest_band(band):
+    ''' Parse a given nest band (standard format: "repu") into its components
         Keyword arguments:
-          name: nest band
+          name: bird band
         Returns:
           colors: array of colors
     '''
@@ -232,7 +236,9 @@ def get_colors_from_band(band):
     for row in rows:
         color[row['display_name']] = row['cv_term']
     field = re.findall(r"([a-z][a-z])", band)
-    return [color[field[0]], color[field[1]]]
+    hash = {"color": {"upper": color[field[0]], "lower": color[field[1]]}}
+    hash['abbreviation'] = {"upper": field[0], "lower": field[1]}
+    return hash
 
 
 # *****************************************************************************
@@ -347,7 +353,7 @@ def generate_nestlist_table(rows):
         fileoutput = ''
         ftemplate = "\t".join(["%s"]*len(header)) + "\n"
         for row in rows:
-            cnt = get_clutch_or_nest_count(row["id"])
+            cnt = get_clutch_or_nest_count(row["id"], 'nest')
             fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
                                        row['damsel'], cnt, row['location'], row['notes'])
             nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))

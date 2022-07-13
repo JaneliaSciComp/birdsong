@@ -556,6 +556,41 @@ def get_nest_properties(nest):
     return nprops, get_birds_in_clutch_or_nest(nest, dnd, "nest"), clutches
 
 
+def get_nest_events(nest):
+    ''' Get a nest's events
+        Keyword arguments:
+          nest: nest name
+        Returns: Events records
+    '''
+    try:
+        g.c.execute("SELECT * FROM nest_event_vw WHERE name=%s ORDER BY event_date", (nest,))
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise err
+    events = ""
+    if rows:
+        header = ['Date', 'Status', 'User', 'Notes']
+        events = '''
+        <br><br>
+        <h3>Events</h3>
+        <table id="events" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        events += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr>' + ''.join("<td>%s</td>")*(len(header)-1) \
+                   + '<td style="text-align: center">%s</td></tr>'
+        for row in rows:
+            for col in ("notes", "username"):
+                if not row[col]:
+                    row[col] = ""
+            outcol = [row["event_date"], row["status"],
+                      row["username"], row["notes"]]
+            events += template % tuple(outcol)
+        events += "</tbody></table>"
+    return events
+
+
 def add_user_permissions(result, user, permissions):
     ''' Add permissions for an existing user
         Keyword arguments:
@@ -704,13 +739,16 @@ def register_single_bird(ipd, result):
             nest = g.c.fetchone()
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        ipd["color1"], ipd["color2"] = get_colors_from_band(nest["band"])
+        bhash = parse_nest_band(nest["band"])
+        ipd["color1"] = bhash['color']['upper']
+        ipd["color2"] = bhash['color']['lower']
         ipd["location_id"] = nest["location_id"]
     else:
         ipd["nest_id"] = None
     name = ipd["start_date"].replace("-", "") + "_" + ipd["color1"] + ipd["number1"] \
            + ipd["color2"] + ipd["number2"]
-    band = get_band_from_name(name)
+    band = parse_bird_name(name)
+    band = band['band']
     try:
         bind = (1, name, band, ipd["nest_id"], None, ipd["location_id"], ipd["vendor_id"],
                 user_id, ipd["notes"], ipd["start_date"], ipd["stop_date"], ipd["sex"])
@@ -1449,7 +1487,8 @@ def show_nest(nname):
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Nests', permissions),
                            nest=nname, nest_id=nest['id'], nprops=nprops, birds=birds,
-                           clutches=clutches, controls=controls, auth=auth)
+                           clutches=clutches, events=get_nest_events(nest["name"]),
+                           controls=controls, auth=auth)
 
 
 @app.route('/newnest')
@@ -3219,6 +3258,34 @@ def get_marker(marker=""):
                               })
     del result["temp"]
     return generate_response(result)
+
+
+@app.route('/cc', methods=['GET'])
+def get_cc():
+    '''
+    Get marker information
+    Return information on a genetic marker.
+    ---
+    tags:
+      - Allelic state
+    parameters:
+      - in: path
+        name: marker
+        schema:
+          type: string
+        required: true
+        description: marker
+    '''
+    result = initialize_result()
+    result["data"] = {}
+    result["data"]["original"] = "20210506_red32blue45"
+    result["data"]["short"] = convert_banding(result["data"]["original"])
+    result["data"]["long"] = convert_banding(result["data"]["short"])
+    result["data"]["parsed"] = parse_bird_name(result["data"]["long"])
+    #result["data"]["colors"] = get_colors_from_band(result["data"]["band"])
+    return generate_response(result)
+
+
 
 # *****************************************************************************
 
