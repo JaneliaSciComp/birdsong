@@ -218,14 +218,14 @@ LEFT OUTER JOIN cv_term l ON (n.location_id=l.id)
 ;
 
 CREATE OR REPLACE VIEW nest_event_vw AS
-SELECT ne.id         AS id
-      ,ne.number     AS number
-      ,n.name        AS name
-      ,s.name        AS status
-      ,u.name        AS user
+SELECT ne.id          AS id
+      ,ne.number      AS number
+      ,n.name         AS name
+      ,s.display_name AS status
+      ,u.name         AS user
       ,CASE WHEN LENGTH(u.last) THEN CONCAT_WS(", ",u.last,u.first) ELSE NULL END AS username
-      ,ne.notes      AS notes
-      ,ne.event_date AS event_date
+      ,ne.notes       AS notes
+      ,ne.event_date  AS event_date
 FROM nest_event ne
 JOIN nest n ON (n.id=ne.nest_id)
 JOIN cv_term s ON (s.cv_id=getCvId("nest_status",NULL) AND s.id=ne.status_id)
