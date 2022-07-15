@@ -277,6 +277,19 @@ def get_bird_sessions(bird):
     <tbody>
     </table>
     """
+    try:
+        g.c.execute("SELECT state,COUNT(1) AS count FROM state_vw WHERE bird=%s GROUP BY 1 ORDER BY 2 DESC",
+                    bird["name"])
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    sessions += "<table id='state' class='state'><thead><tr>"
+    for row in rows:
+        sessions += f"<th>{row['state']}</th>"
+    sessions += "</tr><tbody><tr>"
+    for row in rows:
+        sessions += f"<td>{row['count']}</td>"
+    sessions += "</tr></tbody></table>"
     return sessions
 
 

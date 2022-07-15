@@ -56,6 +56,24 @@ table.standard {
   padding: 0 2px 0 2px;
 }
 
+table.state {
+  text-align: center;
+  border-collapse: collapse;
+  background: #334 !important;
+  color: #bbc !important;
+  font-size: 11pt;
+}
+
+.state th {
+  border: 1px solid #058d95;
+  padding: 0 3px 0 3px;
+}
+
+.state td {
+  border: 1px solid #058d95;
+  padding: 0 3px 0 3px;
+}
+
 .property td {
   padding: 0 8px 0 0px;
 }
