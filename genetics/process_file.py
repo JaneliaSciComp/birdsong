@@ -14,6 +14,7 @@
 import argparse
 import os
 import re
+import socket
 import sys
 import colorlog
 import MySQLdb
@@ -21,7 +22,7 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 
-# pylint: disable=W0703
+# pylint: disable=R1710, W0703
 
 # Configuration
 CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
@@ -104,11 +105,10 @@ def sql_error(err):
     terminate_program(msg)
 
 
-def db_connect(dbd, manifold): # pylint: disable=R1710
+def db_connect(dbd):
     """ Connect to a database
         Keyword arguments:
           dbd: database dictionary
-          manifold: manifold
         Returns:
           connection
           cursor
@@ -137,7 +137,7 @@ def initialize_program():
     data = call_responder('config', 'config/rest_services')
     CONFIG = data['config']
     data = call_responder('config', 'config/db_config')
-    (CONN['bird'], CURSOR['bird']) = db_connect(data['config']['birdsong'][ARG.MANIFOLD], ARG.MANIFOLD)
+    (CONN['bird'], CURSOR['bird']) = db_connect(data['config']['birdsong'][ARG.MANIFOLD])
     try:
         CURSOR['bird'].execute("SELECT id,name,band FROM bird")
         rows = CURSOR['bird'].fetchall()
@@ -177,6 +177,12 @@ def get_terms():
 
 
 def convert_band(iband):
+    """ Given an abbrefiated color band, convert the colors to the full name
+        Keyword arguments:
+          iband: input band
+        Returns:
+          Full-color band
+    """
     band = ""
     field = re.findall(r"([a-z]+|\d+)", iband)
     if len(field) != 4:
@@ -191,7 +197,7 @@ def convert_band(iband):
     else:
         terminate_program(f"Unknown color abbreviation {field[2]}")
     band += field[3]
-    return(band)
+    return band
 
 
 def valid_bird(row):
