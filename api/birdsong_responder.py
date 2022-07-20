@@ -49,7 +49,7 @@ class CustomJSONEncoder(JSONEncoder):
         return JSONEncoder.default(self, obj1)
 
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
@@ -1702,11 +1702,12 @@ def run_search():
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     if ipd['key_type'] == 'bird':
-        result['data'] += "<h2>Birds</h2>" + generate_birdlist_table(rows)
+        result['data'] += f"<h2>Birds</h2>" + generate_birdlist_table(rows)
     elif ipd['key_type'] == 'clutch':
-        result['data'] += "<h2>Clutches</h2>" + generate_clutchlist_table(rows)
+        result['data'] += f"<h2>Clutches</h2>" + generate_clutchlist_table(rows)
     elif ipd['key_type'] == 'nest':
-        result['data'] += "<h2>Nests</h2>" + generate_nestlist_table(rows)
+        result['data'] += f"<h2>Nests</h2>" + generate_nestlist_table(rows)
+    result['data'] += "<script>tableInitialize();</script>"
     return generate_response(result)
 
 

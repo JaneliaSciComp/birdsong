@@ -293,8 +293,9 @@ def generate_birdlist_table(rows, showall=True):
         downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
         birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
                 % (downloadable) + 'role="button">Download table</a>' + birds
+        birds = f"<span style='font-size:16pt'>Birds found: {len(rows)}</span>" + "<br>" + birds
     else:
-        birds = "No birds were found"
+        birds = "<span style='font-size:16pt'>No birds were found</span>"
     return birds
 
 
@@ -329,8 +330,9 @@ def generate_clutchlist_table(rows):
         downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
         clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                    + 'role="button">Download table</a>' + clutches
+        clutches = f"<span style='font-size:16pt'>Clutches found: {len(rows)}</span>" + "<br>" + clutches
     else:
-        clutches = "No clutches were found"
+        clutches = "<span style='font-size:16pt'>No clutches were found</span>"
     return clutches
 
 
@@ -366,8 +368,9 @@ def generate_nestlist_table(rows):
         downloadable = create_downloadable('nests', header, ftemplate, fileoutput)
         nests = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                  + 'role="button">Download table</a>' + nests
+        nests = f"<span style='font-size:16pt'>Nests found: {len(rows)}</span>" + "<br>" + nests
     else:
-        nests = "No nests were found"
+        nests = "<span style='font-size:16pt'>No nests were found</span>"
     return nests
 
 
@@ -877,13 +880,14 @@ def get_search_sql(ipd):
         bind = (ipd['location'])
     elif ipd['stype'] == 'sbt':
         check_missing_parms(ipd, ['key_text'])
+        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
         if ipd['key_type'] == 'bird':
-            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR band like %s OR notes LIKE %s ORDER BY name'
         elif ipd['key_type'] == 'clutch':
             sql = 'SELECT * FROM clutch_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
+            bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
         elif ipd['key_type'] == 'nest':
-            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
-        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR band like %s OR notes LIKE %s ORDER BY name'
     elif ipd['stype'] == 'sbc':
         sql, bind = process_color_search(ipd)
     elif ipd['stype'] == 'sbn':
@@ -938,8 +942,10 @@ def bird_summary_query(ipd, user):
     clause = []
     if "start_date" in ipd and ipd["start_date"] and "stop_date" in ipd and ipd["stop_date"]:
         clause.append((" ('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
-                       + "('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late))")
-                      % (ipd['start_date'], ipd["stop_date"]))
+                       + "('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
+                       + "(DATE(hatch_early) BETWEEN '%s' AND '%s') OR "
+                       + "(DATE(hatch_late) BETWEEN '%s' AND '%s')")
+                      % ((ipd['start_date'], ipd["stop_date"]) * 3))
     elif "start_date" in ipd and ipd["start_date"]:
         clause.append(" (DATE(hatch_early) >= '%s' OR DATE(hatch_late) >= '%s')"
                       % tuple([ipd['start_date']]*2))

@@ -17,6 +17,7 @@ import re
 import socket
 import sys
 import colorlog
+import inquirer
 import MySQLdb
 import pandas as pd
 import requests
@@ -154,6 +155,7 @@ def initialize_program():
     for row in rows:
         COLOR[row['display_name']] = row['cv_term']
     COLOR['g'] = 'green'
+    COLOR['yw'] = 'yellow'
 
 
 def get_terms():
@@ -209,16 +211,16 @@ def valid_bird(row):
     """
     iband = row[BIRD_COL]
     band = convert_band(iband)
-    if band not in BAND:
+    if iband not in BAND:
         COUNT["missing"] += 1
-        LOGGER.error("Band %s is not in database", iband)
+        LOGGER.error("Band %s is not in the database", iband)
         return False
     field = row[BDAY_COL].split("/")
     fdate = "".join([field[2], field[0], field[1]])
     name = "_".join([fdate, band])
     if name not in BIRD:
         COUNT["missing"] += 1
-        LOGGER.error("Bird %s is not in database", name)
+        LOGGER.error("Bird %s is not in the database", name)
         return False
     row[BIRD_COL] = bid = BIRD[name]
     try:
@@ -233,7 +235,7 @@ def valid_bird(row):
         return False
     if row["SEX"] != bird["sex"]:
         COUNT["sex"] += 1
-        LOGGER.warning("Sex mismatch for %s (%s)", bird['name'], bid)
+        LOGGER.warning("Sex mismatch for %s (%s != %s)", bird['name'], row["SEX"], bird["sex"])
         return False
     return True
 
@@ -309,6 +311,11 @@ def perform_analysis(dfr):
         Returns:
           None
     """
+    choices = ["Genotype", "Phenotype"]
+    quest = [inquirer.Checkbox('checklist',
+                               message='Select analyses to perform',
+                               choices=choices, default=choices)]
+    analyses = inquirer.prompt(quest)
     name = list(dfr.columns)
     #PLUG
     #if ARG.PHENOTYPE.upper() not in name:
@@ -319,11 +326,17 @@ def perform_analysis(dfr):
     term = get_terms()
     for _, row in tqdm(dfr.iterrows(), total=dfr.shape[0]):
         COUNT["read"] += 1
+        if "yw" in row[BIRD_COL]:
+            row[BIRD_COL] = row[BIRD_COL].replace("yw", "ye")
+        if row['SEX'] == ".":
+            row['SEX'] = "U"
         if not valid_bird(row):
             continue
         COUNT["processed"] += 1
-        #process_phenotype(row, term)
-        process_genotype(row, term, name, first_marker)
+        if "Phenotype" in analyses['checklist']:
+            process_phenotype(row, term)
+        if "Genotype" in analyses['checklist']:
+            process_genotype(row, term, name, first_marker)
 
 
 def perform_load(dfr):

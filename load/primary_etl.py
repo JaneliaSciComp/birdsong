@@ -40,7 +40,8 @@ CONN = {}
 CURSOR = {}
 READ = {"BIRD": "SELECT * FROM bird WHERE name=%s"
        }
-WRITE = {"BIRD": "INSERT INTO bird (species_id,name,band,location_id,sex,notes,"
+WRITE = {"ALIVE": "UPDATE bird SET alive=1 WHERE id=%s",
+         "BIRD": "INSERT INTO bird (species_id,name,band,location_id,sex,notes,"
                  + "hatch_early,hatch_late) VALUES "
                  + "(1,%s,%s,getCvTermId('location',%s,NULL),%s,%s,%s,%s)",
          "BNEST": "UPDATE bird SET nest_id=%s WHERE id=%s",
@@ -200,13 +201,13 @@ def valid_bird_animal_row(row):
           True if valid, False otherwise
     """
     if not row['band_color_id']:
-        LOGGER.error(f"No upper color for {row['uuid']}")
+        LOGGER.error(f"No upper color for {row['uuid']} (Nest ID {row['nest_id']} hatch date {row['hatch_date']})")
         return False
     if row['band_color_id'] not in COLOR:
         LOGGER.error(f"Bad upper color ID {row['band_color_id']} for {row['uuid']}")
         return False
     if not row['band_color2_id']:
-        LOGGER.error(f"No lower color for {row['uuid']}")
+        LOGGER.error(f"No lower color for {row['uuid']} (Nest ID {row['nest_id']} hatch date {row['hatch_date']})")
         return False
     if row['band_color2_id'] not in COLOR:
         LOGGER.error(f"Bad lower color ID {row['band_color2_id']} for {row['uuid']}")
@@ -346,10 +347,18 @@ def process_birds_event(bird):
     TIMER['birds_event'] = time.time()
     CURSOR['lite'].execute("SELECT * FROM birds_event ORDER BY animal_id,date")
     rows = CURSOR['lite'].fetchall()
+    mark_alive = {}
     for row in tqdm(rows, desc="Bird events"):
         bid = row['animal_id']
         if bid not in bird:
             continue
+        if bird[bid]['bird_id'] not in mark_alive:
+            bind = (str(bird[bid]['bird_id']),)
+            try:
+                CURSOR['bird'].execute(WRITE['ALIVE'], bind)
+            except Exception as err:
+                terminate_program(sql_error(err))
+            mark_alive[bird[bid]['bird_id']] = True
         location = LOCATION[row['location_id']] if row['location_id'] else 'UNKNOWN'
         terminal = BSTATUS[row['status_id']] in ["died", "euthanized"]
         bind = (bird[bid]['bird_id'], location, BSTATUS[row['status_id']],
@@ -474,21 +483,22 @@ def process_sqlite():
     rows = CURSOR['lite'].fetchall()
     band = {}
     bird = {}
-    color_key = 'name'
     for row in tqdm(rows, desc="Birds: Pass 1"):
         COUNT['birds'] += 1
         if not valid_bird_animal_row(row):
             COUNT['birds_invalid'] += 1
             continue
-        newband = COLOR[row['band_color_id']][color_key] + str(row['band_number']) \
-                  + COLOR[row['band_color2_id']][color_key] + str(row['band_number2'])
-        fullname = row['hatch_date'].replace("-", "") + "_" + newband
-        if newband in band:
-            LOGGER.warning(f"{fullname} has a duplicate band {newband}")
+        longband = COLOR[row['band_color_id']]['name'] + str(row['band_number']) \
+                  + COLOR[row['band_color2_id']]['name'] + str(row['band_number2'])
+        shortband = COLOR[row['band_color_id']]['abbrv'] + str(row['band_number']) \
+                    + COLOR[row['band_color2_id']]['abbrv'] + str(row['band_number2'])
+        fullname = row['hatch_date'].replace("-", "") + "_" + longband
+        if longband in band:
+            LOGGER.warning(f"{fullname} has a duplicate band {longband}")
             COUNT['birds_duplicate'] += 1
-        band[newband] = row['uuid']
+        band[shortband] = row['uuid']
         bird[row['uuid']] = dict(row)
-        bird[row['uuid']]['band'] = newband
+        bird[row['uuid']]['band'] = shortband
         bird[row['uuid']]['name'] = fullname
     # Write birds to MySQL
     for bid in tqdm(bird, desc="Birds: Primary write"):
