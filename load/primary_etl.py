@@ -7,6 +7,7 @@
 '''
 
 import argparse
+from datetime import datetime
 import os
 import re
 import socket
@@ -140,7 +141,7 @@ def initialize_program():
         Returns:
           None
     """
-    global COLOR, CONFIG # pylint: disable=W0603
+    global CONFIG # pylint: disable=W0603
     data = call_responder('config', 'config/rest_services')
     CONFIG = data['config']
     data = call_responder('config', 'config/db_config')
@@ -157,7 +158,6 @@ def get_cv_terms():
         Returns:
           None
     """
-    global BSTATUS, COLOR, NSTATUS # pylint: disable=W0603
     CURSOR['lite'].execute("SELECT * FROM birds_color")
     rows = CURSOR['lite'].fetchall()
     for row in rows:
@@ -179,7 +179,6 @@ def insert_cv_terms():
         Returns:
           None
     """
-    global LOCATION # pylint: disable=W0603
     LOGGER.info("Inserting CV terms")
     CURSOR['lite'].execute("SELECT * FROM birds_location")
     rows = CURSOR['lite'].fetchall()
@@ -200,26 +199,34 @@ def valid_bird_animal_row(row):
         Returns:
           True if valid, False otherwise
     """
-    if not row['band_color_id']:
-        LOGGER.error(f"No upper color for {row['uuid']} (Nest ID {row['nest_id']} hatch date {row['hatch_date']})")
-        return False
-    if row['band_color_id'] not in COLOR:
-        LOGGER.error(f"Bad upper color ID {row['band_color_id']} for {row['uuid']}")
-        return False
-    if not row['band_color2_id']:
-        LOGGER.error(f"No lower color for {row['uuid']} (Nest ID {row['nest_id']} hatch date {row['hatch_date']})")
-        return False
-    if row['band_color2_id'] not in COLOR:
-        LOGGER.error(f"Bad lower color ID {row['band_color2_id']} for {row['uuid']}")
-        return False
-    if not row['hatch_date']:
-        LOGGER.error(f"No hatch_date for {row['uuid']}")
-        return False
-    if row['sex'] not in ['F', 'M', 'U']:
-        LOGGER.error(f"Invalid sex for {row['uuid']}")
-        return False
-    if row['location_id'] and row['location_id'] not in LOCATION:
-        LOGGER.error(f"Bad location ID {row['location_id']} for {row['uuid']}")
+    upper = lower = ""
+    if row['band_color_id'] and row['band_number']:
+        upper = COLOR[row['band_color_id']]['abbrv'] + str(row['band_number'])
+    if row['band_color2_id'] and row['band_number2']:
+        lower = COLOR[row['band_color2_id']]['abbrv'] + str(row['band_number2'])
+    band = upper + lower
+    error = ""
+    if not band:
+        error = f"No bands for {row['uuid']} {band} (Nest ID {row['nest_id']} " \
+                + f"hatch date {row['hatch_date']})"
+    elif not row['band_color_id']:
+        error = f"No upper color for {row['uuid']}  {band} (Nest ID {row['nest_id']} " \
+                + f"hatch date {row['hatch_date']})"
+    elif row['band_color_id'] not in COLOR:
+        error = f"Bad upper color ID {row['band_color_id']} for {row['uuid']} {band}"
+    elif not row['band_color2_id']:
+        error = f"No lower color for {row['uuid']} {band} (Nest ID {row['nest_id']} " \
+                + f"hatch date {row['hatch_date']})"
+    elif row['band_color2_id'] not in COLOR:
+        error = f"Bad lower color ID {row['band_color2_id']} for {row['uuid']} {band}"
+    elif not row['hatch_date']:
+        error = f"No hatch_date for {row['uuid']} {band}"
+    elif row['sex'] not in ['F', 'M', 'U']:
+        error = f"Invalid sex ({row['sex']}) for {row['uuid']} {band}"
+    elif row['location_id'] and row['location_id'] not in LOCATION:
+        error = f"Bad location ID {row['location_id']} for {row['uuid']} {band}"
+    if error:
+        ERR.write(error + "\n")
         return False
     return True
 
@@ -240,17 +247,17 @@ def add_relationships(bird, parent):
             if not parent[bid]['sire'] and not parent[bid]['damsel']:
                 continue
             if not parent[bid]['sire']:
-                LOGGER.error(f"Missing sire for {bid} ({row['name']})")
+                ERR.write(f"Missing sire for {bid} {row['name']}\n")
                 continue
             if not parent[bid]['damsel']:
-                LOGGER.error(f"Missing damsel for {bid} ({row['name']})")
+                ERR.write(f"Missing damsel for {bid} {row['name']}\n")
                 continue
             try:
                 if parent[bid]['sire'] not in BIRD_ID:
-                    LOGGER.error(f"Sire {parent[bid]['sire']} was not inserted")
+                    LOGGER.error("Sire %s was not inserted", parent[bid]['sire'])
                     continue
                 if parent[bid]['damsel'] not in BIRD_ID:
-                    LOGGER.error(f"Damsel {parent[bid]['damsel']} was not inserted")
+                    LOGGER.error("Damsel %s was not inserted", parent[bid]['damsel'])
                     continue
                 CURSOR['bird'].execute(WRITE['RELATE'], (row['bird_id'],
                                                          BIRD_ID[parent[bid]['sire']],
@@ -269,7 +276,6 @@ def process_birds_parent(bird):
     """
     LOGGER.info("Adding bird relationships")
     TIMER['birds_parent'] = time.time()
-    LOGGER.info("Getting bird relationships")
     CURSOR['lite'].execute("SELECT * FROM birds_parent ORDER BY child_id")
     rows = CURSOR['lite'].fetchall()
     parent = {}
@@ -291,14 +297,14 @@ def process_birds_parent(bird):
                 continue
             if bird[par]['sex'] == 'M':
                 if parent[bid]['sire']:
-                    LOGGER.error(f"Bird {bid} ({row['name']}) has more than one sire")
+                    ERR.write(f"Bird {bid} {row['name']} has more than one sire\n")
                 parent[bid]['sire'] = bird[par]['name']
             elif bird[par]['sex'] == 'F':
                 if parent[bid]['damsel']:
-                    LOGGER.error(f"Bird {bid} ({row['name']}) has more than one damsel")
+                    ERR.write(f"Bird {bid} {row['name']} has more than one damsel\n")
                 parent[bid]['damsel'] = bird[par]['name']
             else:
-                LOGGER.error(f"Bird {bid} ({row['name']}) has a parent with an unknown sex")
+                ERR.write(f"Bird {bid} {row['name']} has a parent with an unknown sex\n")
     add_relationships(bird, parent)
     ELAPSED.append(f"birds_parent processing: {time.time()-TIMER['birds_parent']:.2f}")
 
@@ -475,6 +481,7 @@ def process_sqlite():
           None
     """
     get_cv_terms()
+    print(COLOR)
     insert_cv_terms()
     TIMER['total'] = time.time()
     # Get a list of birds from birds_animal
@@ -494,7 +501,7 @@ def process_sqlite():
                     + COLOR[row['band_color2_id']]['abbrv'] + str(row['band_number2'])
         fullname = row['hatch_date'].replace("-", "") + "_" + longband
         if longband in band:
-            LOGGER.warning(f"{fullname} has a duplicate band {longband}")
+            LOGGER.warning("%s has a duplicate band %s", fullname, longband)
             COUNT['birds_duplicate'] += 1
         band[shortband] = row['uuid']
         bird[row['uuid']] = dict(row)
@@ -589,6 +596,9 @@ if __name__ == '__main__':
     LOGGER.addHandler(HANDLER)
 
     initialize_program()
+    ERROR_FILE = f"etl_errors_{datetime.today().strftime('%Y%m%d%H%M%S')}.txt"
+    ERR = open(ERROR_FILE, 'w', encoding="utf8")
     process_sqlite()
     wrapup()
+    ERR.close()
     terminate_program()
