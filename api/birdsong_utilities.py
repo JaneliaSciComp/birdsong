@@ -876,7 +876,10 @@ def get_search_sql(ipd):
         bind = (ipd['claim'])
     elif ipd['stype'] == 'sbl':
         check_missing_parms(ipd, ['location'])
-        sql = "SELECT * FROM bird_vw WHERE location=%s ORDER BY name"
+        if ipd['key_type'] == 'nest':
+            sql = "SELECT * FROM nest_vw WHERE location=%s ORDER BY name"
+        else:
+            sql = "SELECT * FROM bird_vw WHERE location=%s ORDER BY name"
         bind = (ipd['location'])
     elif ipd['stype'] == 'sbt':
         check_missing_parms(ipd, ['key_text'])

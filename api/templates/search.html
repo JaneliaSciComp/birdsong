@@ -7,6 +7,9 @@ function run_search(which) {
   if (which == 'sbc') {
     ktype = $('#key_type2').val();
   }
+  else if (which == 'sbl') {
+    ktype = $('#key_type3').val();
+  }
   else {
     ktype = $('#key_type').val();
   }
@@ -83,7 +86,11 @@ $(".search_type").change(function() {
     </div>
     <div id="sbl" class="d-none">
       <h4>Located in</h4>
-      Search for birds located in {{location|safe}}
+      Search for
+      <select id="key_type3">
+        <option value="bird" SELECTED>birds</option>
+        <option value="nest">nests</option>
+      </select> located in {{location|safe}}
       <br><br>
       <div style="text-align:center">
         <button type="button" class="btn btn-success btn-sm" onclick='run_search("sbl");'>Search</button>
