@@ -1305,6 +1305,7 @@ def birds_in_location(location):
     result = initialize_result()
     ipd = receive_payload(result)
     ipd["stype"] = "sbl"
+    ipd['key_type'] = "bird"
     ipd["location"] = location
     result["data"] = ""
     print(ipd)
@@ -1508,6 +1509,8 @@ def nests_in_location(location):
                                title="Unknown user", message="User %s is not registered" % user)
     result = initialize_result()
     ipd = receive_payload(result)
+    ipd["stype"] = "sbl"
+    ipd['key_type'] = "nest"
     ipd["location"] = location
     result["data"] = ""
     sql, bind = "SELECT * FROM nest_vw WHERE location=%s", (location,)
