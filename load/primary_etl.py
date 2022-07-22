@@ -481,7 +481,6 @@ def process_sqlite():
           None
     """
     get_cv_terms()
-    print(COLOR)
     insert_cv_terms()
     TIMER['total'] = time.time()
     # Get a list of birds from birds_animal
