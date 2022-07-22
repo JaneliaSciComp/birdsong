@@ -385,6 +385,7 @@ CREATE TABLE `user` (
   `janelia_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `email` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `organization` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `active` tinyint(3) unsigned NOT NULL DEFAULT 1,
   `create_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `user_name_uk_ind` (`name`) USING BTREE

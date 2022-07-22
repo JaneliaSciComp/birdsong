@@ -26,9 +26,10 @@ READ = {
              + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
     'ISPARENT': "SELECT * FROM bird_relationship_vw WHERE type='genetic' AND (sire=%s "
                 "OR damsel=%s)",
-    'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt FROM cv_term c "
-                + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
-                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3,4",
+    'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt,"
+                + "COUNT(DISTINCT n.id) AS ncnt FROM cv_term c LEFT OUTER JOIN bird b ON "
+                + "(b.location_id=c.id) LEFT OUTER JOIN nest n ON (n.location_id=c.id) "
+                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3",
     'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
 }
 WRITE = {
@@ -637,6 +638,7 @@ def generate_which_pulldown():
             <option value="mine" selected>Claimed by me</option>
             <option value="eligible">Claimed by me or unclaimed</option>
             <option value="unclaimed">Unclaimed birds only</option>
+            <option value="claimed">Claimed birds only</option>
             <option value="all">All birds</option>
           </select>
         </div>
@@ -960,6 +962,8 @@ def bird_summary_query(ipd, user):
             clause.append(" user='%s'" % user)
         elif ipd["which"] == "eligible":
             clause.append(" (user='%s' OR user IS NULL)" % user)
+        elif ipd["which"] == "claimed":
+            clause.append(" user IS NOT NULL")
         elif ipd["which"] == "unclaimed":
             clause.append(" user IS NULL")
     if "alive" in ipd and "dead" in ipd and not (ipd["alive"] and ipd["dead"]):

@@ -279,18 +279,6 @@ JOIN session ss ON (s.session_id=ss.id)
 JOIN bird b ON (ss.bird_id=b.id)
 ;
 
-DROP TABLE IF EXISTS phenotype_state_mv;
-CREATE TABLE phenotype_state_mv (
-  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `marker` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `state` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `svalues` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `count` int(10) unsigned,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=60 DEFAULT CHARSET=utf8mb4;
-/*!40101 SET character_set_client = @saved_cs_client */;
-  
 CREATE OR REPLACE VIEW phenotype_state_build_vw AS
 SELECT c.display_name AS type
        ,marker
@@ -312,6 +300,7 @@ SELECT u.name
       ,janelia_id
       ,email
       ,organization
+      ,active
       ,GROUP_CONCAT(p.name) AS permissions
 FROM user_permission up
 LEFT OUTER JOIN cv_term p ON (p.cv_id=getCvId("permission",NULL) AND p.id=up.permission_id)

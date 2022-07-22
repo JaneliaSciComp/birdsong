@@ -982,6 +982,12 @@ def login_callback():
         print("Getting user information from %s" % (uri))
     userinfo_response = requests.get(uri, headers=headers, data=body)
     my_token = token_response.json().get("id_token")
+    try:
+        rec = get_user_by_name(userinfo_response.json()["email"])
+    except Exception as err:
+        pass
+    if not rec or not rec['active']:
+        return "User is no longer active.", 400
     # Verify the user's email
     if not userinfo_response.json().get("email_verified"):
         return "User email not available or not verified by Google.", 400
@@ -1065,7 +1071,10 @@ def user_list():
                     this_perm = '<span style="color:orange">%s</span>' % perm
                 showarr.append(this_perm)
             row['permissions'] = ', '.join(showarr)
-        urows += template % (rclass, ', '.join([row['last'], row['first']]), link,
+        given_name = ', '.join([row['last'], row['first']])
+        if not row['active']:
+            given_name = f"<s>{given_name}</s>"
+        urows += template % (rclass, given_name, link,
                              row['janelia_id'], row['email'], row['organization'],
                              row['permissions'])
     adduser = ''
@@ -1285,24 +1294,7 @@ def show_bird(bname): # pylint: disable=R0911
 
 @app.route('/birds/location/<string:location>', methods=['GET'])
 def birds_in_location(location):
-    '''
-    Search the database
-    Search by key text.
-    ---
-    tags:
-      - Search
-    parameters:
-      - in: path
-        name: location
-        schema:
-          type: string
-        required: true
-        description: location
-    responses:
-      200:
-          description: Database entries
-      500:
-          description: Error
+    ''' Show information for birds in a specific location
     '''
     user, face, permissions = get_user_profile()
     if not user:
@@ -1504,6 +1496,35 @@ def show_nest(nname):
                            controls=controls, auth=auth)
 
 
+@app.route('/nests/location/<string:location>', methods=['GET'])
+def nests_in_location(location):
+    ''' Show information for nests in a specific location
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message="User %s is not registered" % user)
+    result = initialize_result()
+    ipd = receive_payload(result)
+    ipd["location"] = location
+    result["data"] = ""
+    sql, bind = "SELECT * FROM nest_vw WHERE location=%s", (location,)
+    if app.config['DEBUG']:
+        print(sql % bind)
+    try:
+        g.c.execute(sql, bind)
+        rows = g.c.fetchall()
+        result['rest']['sql_statement'] = g.c.mogrify(sql, bind)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return render_template('nestloc.html', urlroot=request.url_root, face=face,
+                           dataset=app.config['DATASET'],
+                           navbar=generate_navbar('Nests', permissions),
+                           location=location, nestloc=generate_nestlist_table(rows))
+
+
 @app.route('/newnest')
 def new_nest():
     ''' Register a new nest
@@ -1553,13 +1574,13 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
     locrows = ''
-    fheader = ['Location', 'Description', 'Number of birds']
-    header = ['Location', 'Description', 'Number of birds']
+    fheader = ['Location', 'Description', 'Number of birds', 'Number of nests']
+    header = ['Location', 'Description', 'Number of birds', 'Number of nests']
     if rows:
         if set(['admin', 'manager']).intersection(permissions):
             header.append("Delete")
             template = '<tr class="open">' + ''.join("<td>%s</td>")*2 \
-                       + ''.join('<td style="text-align: center">%s</td>'*2) + '</tr>'
+                       + ''.join('<td style="text-align: center">%s</td>'*3) + '</tr>'
         else:
             template = '<tr class="open">' + ''.join("<td>%s</td>")*(len(header)-1) \
                        + '<td style="text-align: center">%s</td></tr>'
@@ -1567,18 +1588,21 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         fileoutput = ''
         ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
         for row in rows:
-            fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'])
+            fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'], row['ncnt'])
             if row["cnt"]:
                 row["cnt"] = '<a href="/birds/location/%s">%s</a>' \
                              % (row['display_name'], row['cnt'])
+            if row["ncnt"]:
+                row["ncnt"] = '<a href="/nests/location/%s">%s</a>' \
+                             % (row['display_name'], row['ncnt'])
             delcol = ""
-            if row['cnt'] == 0:
+            if row['cnt'] == 0 and row['ncnt'] == 0:
                 delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
                          + ');"><i class="fa-solid fa-trash-can fa-lg" style="color:red"></i></a>'
             if set(['admin', 'manager']).intersection(permissions):
-                locrows += template % (row['display_name'], row['definition'], row['cnt'], delcol)
+                locrows += template % (row['display_name'], row['definition'], row['cnt'], row['ncnt'], delcol)
             else:
-                locrows += template % (row['display_name'], row['definition'], row['cnt'])
+                locrows += template % (row['display_name'], row['definition'], row['cnt'], row['ncnt'])
         downloadable = create_downloadable('locations', fheader, ftemplate, fileoutput)
         locations = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                     + 'role="button">Download table</a>'
