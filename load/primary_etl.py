@@ -28,6 +28,7 @@ BSTATUS = {}
 NSTATUS = {}
 COLOR = {}
 LOCATION = {}
+NESTLOC = {}
 BIRD_ID = {}
 DO_NOT_INSERT = {}
 MARK_AS_DEAD = {}
@@ -42,10 +43,11 @@ CURSOR = {}
 READ = {"BIRD": "SELECT * FROM bird WHERE name=%s"
        }
 WRITE = {"ALIVE": "UPDATE bird SET alive=1 WHERE id=%s",
-         "BIRD": "INSERT INTO bird (species_id,name,band,location_id,sex,notes,"
-                 + "hatch_early,hatch_late) VALUES "
+         "BIRD": "INSERT INTO bird (species_id,name,band,location_id,"
+                 + "sex,notes,hatch_early,hatch_late) VALUES "
                  + "(1,%s,%s,getCvTermId('location',%s,NULL),%s,%s,%s,%s)",
          "BNEST": "UPDATE bird SET nest_id=%s WHERE id=%s",
+         "BBNEST": "UPDATE bird SET birth_nest_id=%s WHERE id=%s",
          "CLAIM": "UPDATE bird SET user_id=%s,alive=1 WHERE id=%s",
          "DEAD": "UPDATE bird SET user_id=NULL,alive=0,death_date=%s WHERE id=%s",
          "BEVENT": "INSERT INTO bird_event (bird_id,location_id,status_id,user_id,"
@@ -456,18 +458,26 @@ def process_birds_nest(bird):
         try:
             CURSOR['bird'].execute(WRITE['NEST'], bind)
             nest[row['uuid']]['nest_id'] = CURSOR['bird'].lastrowid
+            NESTLOC[nest[row['uuid']]['nest_id']] = location
         except Exception as err:
             terminate_program(sql_error(err))
     for bid in tqdm(bird, desc="Assign birds to nests"):
         row = bird[bid]
         if not row['nest_id'] or row['nest_id'] not in nest:
             continue
-        bind = (nest[row['nest_id']]['nest_id'], row['bird_id'])
+        inest = nest[row['nest_id']]['nest_id']
+        bind = (inest, row['bird_id'])
         LOGGER.debug(WRITE['BNEST'], bind)
         try:
             CURSOR['bird'].execute(WRITE['BNEST'], bind)
         except Exception as err:
             terminate_program(sql_error(err))
+        if NESTLOC[inest].startswith("N"):
+            LOGGER.debug(WRITE['BBNEST'], bind)
+            try:
+                CURSOR['bird'].execute(WRITE['BBNEST'], bind)
+            except Exception as err:
+                terminate_program(sql_error(err))
     ELAPSED.append(f"birds_nest processing: {time.time()-TIMER['birds_nest']:.2f}")
     # Add nest events
     process_birds_nestevent(nest)

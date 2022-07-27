@@ -102,8 +102,10 @@ SELECT b.id           AS id
       ,b.name         AS name
       ,b.band         AS band
       ,n.name         AS nest
+      ,bn.name        AS birth_nest
       ,v.display_name AS vendor
       ,nl.name        AS nest_location
+      ,bnl.name       AS birth_nest_location
       ,c.name         AS clutch
       ,b1.name        AS sire
       ,b2.name        AS damsel
@@ -121,6 +123,8 @@ SELECT b.id           AS id
 FROM bird b
 LEFT OUTER JOIN nest n ON (n.id=b.nest_id)
 LEFT OUTER JOIN cv_term nl ON (nl.id=n.location_id)
+LEFT OUTER JOIN nest bn ON (bn.id=b.birth_nest_id)
+LEFT OUTER JOIN cv_term bnl ON (bnl.id=n.location_id)
 LEFT OUTER JOIN clutch c ON (c.id=b.clutch_id)
 LEFT OUTER JOIN bird_relationship r ON (r.type="genetic" AND r.bird_id=b.id)
 LEFT OUTER JOIN bird b1 ON (b1.id=r.sire_id)

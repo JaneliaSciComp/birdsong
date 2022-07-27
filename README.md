@@ -1,4 +1,4 @@
-# Assignment Responder [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
+# BIrdsong [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
 
 [![Build Status](https://travis-ci.org/janelia-flyem/assignment-manager.svg?branch=master)](https://travis-ci.org/janelia-flyem/assignment-manager)
 [![GitHub last commit](https://img.shields.io/github/last-commit/janelia-flyem/assignment-manager.svg)](https://github.com/janelia-flyem/assignment-manager)

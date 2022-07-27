@@ -334,6 +334,9 @@ def populate_bird_locations(bprops, bird):
     if bird["vendor"]:
         bprops.append(["Vendor:", bird["vendor"]])
     bprops.append(["Location:", bird['location']])
+    if bird["birth_nest"]:
+        bprops.append(["Birth nest:", bird["birth_nest_location"] \
+                       + ' <a href="/nest/%s">%s</a>' % tuple([bird["birth_nest"]]*2)])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
 
@@ -745,6 +748,7 @@ def register_single_bird(ipd, result):
     '''
     user_id = None
     set_claim_notes(ipd, result, user_id)
+    birthnest = None
     if "nest_id" in ipd:
         # Get colors
         try:
@@ -756,6 +760,9 @@ def register_single_bird(ipd, result):
         ipd["color1"] = bhash['color']['upper']
         ipd["color2"] = bhash['color']['lower']
         ipd["location_id"] = nest["location_id"]
+        nrow = get_nest_from_id(ipd["nest_id"])
+        if nrow['location'].startswith("N"):
+            birthnest = ipd["nest_id"]
     else:
         ipd["nest_id"] = None
     name = ipd["start_date"].replace("-", "") + "_" + ipd["color1"] + ipd["number1"] \
@@ -763,7 +770,7 @@ def register_single_bird(ipd, result):
     band = parse_bird_name(name)
     band = band['band']
     try:
-        bind = (1, name, band, ipd["nest_id"], None, ipd["location_id"], ipd["vendor_id"],
+        bind = (1, name, band, ipd["nest_id"], birthnest, None, ipd["location_id"], ipd["vendor_id"],
                 user_id, ipd["notes"], ipd["start_date"], ipd["stop_date"], ipd["sex"])
         if app.config['DEBUG']:
             print(WRITE["INSERT_BIRD"] % bind)
@@ -797,10 +804,14 @@ def register_birds(ipd, result):
     # User
     user_id = None
     set_claim_notes(ipd, result, user_id)
+    birthnest = ipd["nest_id"]
+    nrow = get_nest_from_id(ipd["nest_id"])
+    if nrow['location'].startswith("N"):
+        birthnest = ipd["nest_id"]
     for bird in band:
         try:
-            bind = (1, bird["name"], bird["band"], ipd["nest_id"], ipd["clutch_id"], loc_id, None,
-                    user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"], None)
+            bind = (1, bird["name"], bird["band"], ipd["nest_id"], birthnest, ipd["clutch_id"], loc_id,
+                    None, user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"], None)
             if app.config['DEBUG']:
                 print(WRITE["INSERT_BIRD"] % bind)
             g.c.execute(WRITE["INSERT_BIRD"], bind)

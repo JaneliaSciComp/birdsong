@@ -119,6 +119,7 @@ CREATE TABLE `bird` (
   `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `band` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `nest_id` int(10) unsigned,
+  `birth_nest_id` int(10) unsigned,
   `vendor_id` int(10) unsigned DEFAULT NULL,
   `clutch_id` int(10) unsigned,
   `tutor` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -135,6 +136,7 @@ CREATE TABLE `bird` (
   UNIQUE KEY `bird_name_key_uk_ind` (`name`) USING BTREE,
   CONSTRAINT `bird_species_id_fk` FOREIGN KEY (`species_id`) REFERENCES `species` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `bird_nest_id_fk` FOREIGN KEY (`nest_id`) REFERENCES `nest` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_birth_nest_id_fk` FOREIGN KEY (`birth_nest_id`) REFERENCES `nest` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `bird_clutch_id_fk` FOREIGN KEY (`clutch_id`) REFERENCES `clutch` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `bird_location_id_fk` FOREIGN KEY (`location_id`) REFERENCES `cv_term` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `bird_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION

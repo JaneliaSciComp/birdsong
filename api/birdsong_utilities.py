@@ -33,9 +33,9 @@ READ = {
     'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
 }
 WRITE = {
-    'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,clutch_id,location_id,"
-                   + "vendor_id,user_id,notes,alive,hatch_early,hatch_late,sex) VALUES "
-                   + "(%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s)",
+    'INSERT_BIRD': "INSERT INTO bird (species_id,name,band,nest_id,birth_nest_id,clutch_id,"
+                   + "location_id,vendor_id,user_id,notes,alive,hatch_early,"
+                   + "hatch_late,sex) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s)",
     'INSERT_CV': "INSERT INTO cv (name,definition,display_name,version,"
                  + "is_current) VALUES (%s,%s,%s,%s,%s)",
     'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
@@ -143,6 +143,15 @@ def convert_banding(term):
     newterm = term.replace(original, "".join([color[match[0]], match[1],
                                               color[match[2]], match[3]]))
     return newterm
+
+
+def get_nest_from_id(id):
+    try:
+        g.c.execute("SELECT * FROM nest_vw WHERE id=%s", (id,))
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return row
 
 
 def get_banding(ipd):
