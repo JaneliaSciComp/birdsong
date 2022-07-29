@@ -126,9 +126,10 @@ LEFT OUTER JOIN cv_term nl ON (nl.id=n.location_id)
 LEFT OUTER JOIN nest bn ON (bn.id=b.birth_nest_id)
 LEFT OUTER JOIN cv_term bnl ON (bnl.id=n.location_id)
 LEFT OUTER JOIN clutch c ON (c.id=b.clutch_id)
-LEFT OUTER JOIN bird_relationship r ON (r.type="genetic" AND r.bird_id=b.id)
-LEFT OUTER JOIN bird b1 ON (b1.id=r.sire_id)
-LEFT OUTER JOIN bird b2 ON (b2.id=r.damsel_id)
+LEFT OUTER JOIN bird_relationship rs ON (rs.type_id=getCvTermId("bird_relationship","sire_to",NULL) AND rs.object_id=b.id)
+LEFT OUTER JOIN bird_relationship rd ON (rd.type_id=getCvTermId("bird_relationship","damsel_to",NULL) AND rd.object_id=b.id)
+LEFT OUTER JOIN bird b1 ON (b1.id=rs.subject_id)
+LEFT OUTER JOIN bird b2 ON (b2.id=rd.subject_id)
 LEFT OUTER JOIN cv_term l ON (l.id=b.location_id)
 LEFT OUTER JOIN user u ON (b.user_id = u.id)
 LEFT OUTER JOIN cv_term v ON (v.id=b.vendor_id)
@@ -170,17 +171,14 @@ JOIN cv ON (cv_term.cv_id = cv.id)
 
 CREATE OR REPLACE VIEW bird_relationship_vw AS
 SELECT br.id                 AS id
-      ,br.type               AS type
-      ,b1.name               AS bird
-      ,b2.name               AS sire
-      ,b3.name               AS damsel
-      ,br.notes              AS notes
-      ,br.relationship_start AS relationship_start
-      ,br.relationship_end   AS relationship_end
+      ,b1.name               AS subject
+      ,c.name                AS type
+      ,b2.name               AS object
+      ,br.create_date        AS create_date
 FROM bird_relationship br
-JOIN bird b1 ON (br.bird_id=b1.id)
-LEFT OUTER JOIN bird b2 ON (br.sire_id=b2.id)
-LEFT OUTER JOIN bird b3 ON (br.damsel_id=b3.id)
+JOIN bird b1 ON (br.subject_id=b1.id)
+JOIN bird b2 ON (br.object_id=b2.id)
+JOIN cv_term c ON (c.id = br.type_id)
 ;
 
 CREATE OR REPLACE VIEW clutch_vw AS

@@ -58,6 +58,16 @@ INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getC
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('vendor',''),1,'bb','B&B','B&B');
 
 --
+-- Bird relationship CV terms
+--
+INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'bird_relationship','Bird relationship','Bird relationship');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'sired_by','Sired by','Sired by');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'sire_to','Sire to','Sire to');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'borne_by','Borne by','Borne by');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'damsel_to','Damsel to','Damsel to');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'sibling_of','Sibling of','Sibling of');
+
+--
 -- Bird status CV terms
 --
 INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'bird_status','Bird status','Bird status');

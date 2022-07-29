@@ -172,18 +172,15 @@ DROP TABLE IF EXISTS `bird_relationship`;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `bird_relationship` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
-  `type` varchar(12) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `bird_id` int(10) unsigned NOT NULL,
-  `sire_id` int(10) unsigned NOT NULL,
-  `damsel_id` int(10) unsigned NOT NULL,
-  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `relationship_start` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `relationship_end` timestamp,
+  `type_id` int(10) unsigned NOT NULL,
+  `subject_id` int(10) unsigned NOT NULL,
+  `object_id` int(10) unsigned NOT NULL,
+  `create_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `bird_relationship_bird_id_uk_ind` (`bird_id`) USING BTREE,
-  CONSTRAINT `bird_relationship_bird_id_fk` FOREIGN KEY (`bird_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `bird_relationship_sire_id_fk` FOREIGN KEY (`sire_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
-  CONSTRAINT `bird_relationship_damsel_id_fk` FOREIGN KEY (`damsel_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+  KEY `bird_relationship_id_uk_ind` (`id`) USING BTREE,
+  CONSTRAINT `bird_relationship_type_id_fk` FOREIGN KEY (`type_id`) REFERENCES `cv_term` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_relationship_subject_id_fk` FOREIGN KEY (`subject_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_relationship_object_id_fk` FOREIGN KEY (`object_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
