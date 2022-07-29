@@ -392,10 +392,11 @@ def get_bird_properties(bird, user, permissions):
     parent = ""
     if bird["sex"]:
         try:
-            g.c.execute(READ["ISPARENT"], tuple([bird["name"]]*2))
+            g.c.execute(READ["ISPARENT"], (bird["name"],))
             rows = g.c.fetchall()
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
+        print(rows)
         if rows:
             parent = " (%s)" % ("sire" if bird["sex"] == "M" else "damsel")
     bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
@@ -481,6 +482,7 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
                     row[col] = ""
             rclass = 'alive' if row['alive'] else 'dead'
             bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
+            bird = colorband(row["name"], bird)
             if not row['alive']:
                 row['current_age'] = '-'
             alive = apply_color("YES", "lime", row["alive"], "red", "NO")
@@ -3308,6 +3310,32 @@ def get_marker(marker=""):
                                "stdev": stdev,
                                "variance": vari
                               })
+    del result["temp"]
+    return generate_response(result)
+
+
+@app.route('/allelic_state/<string:bird>', methods=['GET'])
+def get_allelic_state(bird=""):
+    '''
+    Get allelic state information for a bird
+    Return information on a bird's allelic state.
+    ---
+    tags:
+      - Allelic state
+    parameters:
+      - in: path
+        name: bird
+        schema:
+          type: string
+        required: true
+        description: bird name
+    '''
+    result = initialize_result()
+    execute_sql(result, f"SELECT marker,state FROM state_vw WHERE bird='{bird}' ORDER BY marker",
+                app.config["DEBUG"], "temp")
+    result["data"] = {}
+    for row in result["temp"]:
+        result["data"][row['marker']] = row['state']
     del result["temp"]
     return generate_response(result)
 
