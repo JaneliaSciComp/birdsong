@@ -24,8 +24,10 @@ READ = {
     'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
              + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
              + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",
-    'ISPARENT': "SELECT * FROM bird_relationship_vw WHERE type='genetic' AND (sire=%s "
+    'ISPARENTX': "SELECT * FROM bird_relationship_vw WHERE type='genetic' AND (sire=%s "
                 "OR damsel=%s)",
+    'ISPARENT': "SELECT * FROM bird_relationship_vw where type IN ('sire_to','damsel_to') "
+                + "AND subject=%s",
     'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt,"
                 + "COUNT(DISTINCT n.id) AS ncnt FROM cv_term c LEFT OUTER JOIN bird b ON "
                 + "(b.location_id=c.id) LEFT OUTER JOIN nest n ON (n.location_id=c.id) "
@@ -41,6 +43,8 @@ WRITE = {
     'INSERT_CVTERM': "INSERT INTO cv_term (cv_id,name,definition,display_name"
                      + ",is_current,data_type) VALUES (getCvId(%s,''),%s,%s,"
                      + "%s,%s,%s)",
+    'INSERT_REL': "INSERT INTO bird_relationship (type_id,subject_id,object_id) "
+                  + "VALUES(getCvTermId('bird_relationship',%s,NULL),%s,%s)",
     'INSERT_UPERM': "INSERT INTO user_permission (user_id,permission_id) VALUES "
                     + "(%s,getCvTermId('permission','%s','')) "
                     + "ON DUPLICATE KEY UPDATE permission_id=permission_id",
@@ -1017,13 +1021,38 @@ def create_relationship(ipd, result, bird_id, nest):
         Returns:
           SQL query
     '''
-    sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
-          + "VALUES ('genetic',%s,%s,%s,%s)"
+    #sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
+    #      + "VALUES ('genetic',%s,%s,%s,%s)"
+    #ry:
+    #    bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
+    #    g.c.execute(sql, bind)
+    #    result["rest"]["row_count"] += g.c.rowcount
+    #    result["rest"]["relationship_id"].append(g.c.lastrowid)
+    #except Exception as err:
+    #    raise InvalidUsage(sql_error(err), 500) from err
+    sql = 'INSERT_REL'
     try:
-        bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
+        bind = ("sired_by", bird_id, nest["sire_id"])
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
-        result["rest"]["relationship_id"].append(g.c.lastrowid)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    try:
+        bind = ("sire_to", nest["sire_id"], bird_id)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    try:
+        bind = ("borne_by", bird_id, nest["damsel_id"])
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    try:
+        bind = ("damsel_to", nest["damsel_id"], bird_id)
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
 
