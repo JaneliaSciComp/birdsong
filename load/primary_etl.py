@@ -40,7 +40,12 @@ ELAPSED = []
 # Database
 CONN = {}
 CURSOR = {}
-READ = {"BIRD": "SELECT * FROM bird WHERE name=%s"
+READ = {"BIRD": "SELECT * FROM bird WHERE name=%s",
+        "CHILDREN": "SELECT subject_id,object_id,create_date FROM bird_relationship WHERE "
+                    + "type_id=getCvTermId('bird_relationship','sired_by',NULL)",
+        "SIBLINGS": "SELECT subject_id FROM bird_relationship WHERE "
+                    + "type_id=getCvTermId('bird_relationship','sired_by',NULL) "
+                    + "AND object_id=%s",
        }
 WRITE = {"ALIVE": "UPDATE bird SET alive=1 WHERE id=%s",
          "BIRD": "INSERT INTO bird (species_id,name,band,location_id,"
@@ -57,8 +62,8 @@ WRITE = {"ALIVE": "UPDATE bird SET alive=1 WHERE id=%s",
                  + "create_date) VALUES (%s,%s,%s,%s,getCvTermId('location',%s,NULL),1,%s)",
          "NEVENT": "INSERT INTO nest_event (nest_id,status_id,user_id,event_date) VALUES"
                    + "(%s,getCvTermId('nest_status',%s,NULL),%s,%s)",
-         "RELATE": "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,"
-                   + "relationship_start) VALUES ('genetic',%s,%s,%s,%s)",
+         "RELATE": "INSERT INTO bird_relationship (type_id,subject_id,object_id,create_date) "
+                   + "VALUES(getCvTermId('bird_relationship',%s,NULL),%s,%s,%s)",
          "TERM": "INSERT INTO cv_term (cv_id,name,definition,display_name,is_current,data_type) "
                  + "VALUES(getCvId('location',NULL),%s,%s,%s,1,'text')",
         }
@@ -233,6 +238,54 @@ def valid_bird_animal_row(row):
     return True
 
 
+def relate_birds(bird_id, sire_id, damsel_id, hdate):
+    try:
+        bind = ("sired_by", bird_id, sire_id, hdate)
+        CURSOR['bird'].execute(WRITE["RELATE"], bind)
+    except MySQLdb.Error as err:
+        sql_error(err)
+    try:
+        bind = ("sire_to", sire_id, bird_id, hdate)
+        CURSOR['bird'].execute(WRITE["RELATE"], bind)
+    except MySQLdb.Error as err:
+        sql_error(err)
+    try:
+        bind = ("borne_by", bird_id, damsel_id, hdate)
+        CURSOR['bird'].execute(WRITE["RELATE"], bind)
+    except MySQLdb.Error as err:
+        sql_error(err)
+    try:
+        bind = ("damsel_to", damsel_id, bird_id, hdate)
+        CURSOR['bird'].execute(WRITE["RELATE"], bind)
+    except MySQLdb.Error as err:
+        sql_error(err)
+
+
+def add_sibling_relationships():
+    try:
+        CURSOR['bird'].execute(READ["CHILDREN"])
+        children = CURSOR['bird'].fetchall()
+    except Exception as err:
+        terminate_program(sql_error(err))
+    for child in tqdm(children, desc="Birds: Add sibling relationships"):
+        bird_id = child['subject_id']
+        parent_id = child['object_id']
+        hdate = child['create_date']
+        try:
+            CURSOR['bird'].execute(READ["SIBLINGS"], (parent_id,))
+            siblings = CURSOR['bird'].fetchall()
+        except Exception as err:
+            terminate_program(sql_error(err))
+        for sib in siblings:
+            sib_id = sib['subject_id']
+            if bird_id == sib_id:
+                continue
+            try:
+                CURSOR['bird'].execute(WRITE["RELATE"], ("sibling_of", bird_id, sib_id, hdate))
+            except Exception as err:
+                terminate_program(sql_error(err))
+
+
 def add_relationships(bird, parent):
     """ Transfer information from the birds_parent table to the bird_relationship table.
         Keyword arguments:
@@ -254,19 +307,15 @@ def add_relationships(bird, parent):
             if not parent[bid]['damsel']:
                 ERR.write(f"Missing damsel for {bid} {row['name']}\n")
                 continue
-            try:
-                if parent[bid]['sire'] not in BIRD_ID:
-                    LOGGER.error("Sire %s was not inserted", parent[bid]['sire'])
-                    continue
-                if parent[bid]['damsel'] not in BIRD_ID:
-                    LOGGER.error("Damsel %s was not inserted", parent[bid]['damsel'])
-                    continue
-                CURSOR['bird'].execute(WRITE['RELATE'], (row['bird_id'],
-                                                         BIRD_ID[parent[bid]['sire']],
-                                                         BIRD_ID[parent[bid]['damsel']],
-                                                         row['hatch_date']))
-            except Exception as err:
-                terminate_program(sql_error(err))
+            if parent[bid]['sire'] not in BIRD_ID:
+                LOGGER.error("Sire %s was not inserted", parent[bid]['sire'])
+                continue
+            if parent[bid]['damsel'] not in BIRD_ID:
+                LOGGER.error("Damsel %s was not inserted", parent[bid]['damsel'])
+                continue
+            relate_birds(row['bird_id'],BIRD_ID[parent[bid]['sire']],
+                         BIRD_ID[parent[bid]['damsel']], row['hatch_date'])
+    add_sibling_relationships()
 
 
 def process_birds_parent(bird):
