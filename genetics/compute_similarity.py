@@ -1,6 +1,6 @@
 import argparse
 import os
-import re
+import socket
 import sys
 import colorlog
 import MySQLdb
@@ -19,11 +19,21 @@ SIRE_COL = "FATHER_ID"
 DAMSEL_COL = "MOTHER_ID"
 FRAME = {}
 COLOR = {}
-COUNT = {"missing": 0, "phenotype": 0, "processed": 0, "read": 0, "score": 0,
-         "session": 0, "sex": 0, "state": 0, "birds": 0}
+PROCESSED = {}
+RELATIONSHIP = {}
+SESSION = {}
+COUNT = {"comparisons": 0, "potential": 0, "removed": 0, "present": 0}
 # Database
 CONN = {}
 CURSOR = {}
+READ = {"SESSION": "SELECT id FROM session_vw WHERE cv='Genotype' AND "
+                   + "type='Allelic state' AND bird=%s ORDER BY create_date DESC LIMIT 1"
+       }
+WRITE = {"COMPARE": "INSERT IGNORE INTO bird_comparison (bird1_id,bird1_session_id,"
+                    + "comparison_id,bird2_id,bird2_session_id,value) "
+                    + "VALUES (%s,%s,getCvTermId('bird_comparison','%s',''),"
+                    + "%s,%s,%s)"
+        }
 
 
 def terminate_program(msg=None):
@@ -53,14 +63,14 @@ def call_responder(server, endpoint, payload=''):
             headers = {"Content-Type": "application/json",
                        "Accept": 'application/json',
                        "host": socket.gethostname()}
-            req = requests.post(url, headers=headers, json=payload)
+            req = requests.post(url, headers=headers, json=payload, timeout=10)
         else:
-            req = requests.get(url)
+            req = requests.get(url, timeout=10)
     except requests.exceptions.RequestException as err:
         terminate_program(err)
-    if req.status_code == 200:
-        return req.json()
-    terminate_program(f"Status: {str(req.status_code)}")
+    if req.status_code != 200:
+        terminate_program(f"Status: {str(req.status_code)}")
+    return req.json()
 
 
 def sql_error(err):
@@ -93,10 +103,13 @@ def db_connect(dbd):
         sql_error(err)
     try:
         cursor = conn.cursor(MySQLdb.cursors.DictCursor)
-        return conn, cursor
     except MySQLdb.Error as err:
         sql_error(err)
+    return conn, cursor
 
+
+def make_comparison_key(arr):
+    return "_".join([str(elem) for elem in arr])
 
 def initialize_program():
     """ Initialize the program
@@ -124,13 +137,34 @@ def initialize_program():
         COLOR[row['display_name']] = row['cv_term']
     COLOR['g'] = 'green'
     COLOR['yw'] = 'yellow'
+    try:
+        CURSOR['bird'].execute("SELECT subject,type,object FROM bird_relationship_vw")
+        rows = CURSOR['bird'].fetchall()
+    except Exception as err:
+        sql_error(err)
+    for row in rows:
+        if row["subject"] not in RELATIONSHIP:
+            RELATIONSHIP[row["subject"]] = {}
+        RELATIONSHIP[row["subject"]][row["object"]] = row["type"]
+    # Get previously processed comparisons
+    try:
+        CURSOR['bird'].execute("SELECT * FROM bird_comparison")
+        rows = CURSOR['bird'].fetchall()
+    except Exception as err:
+        sql_error(err)
+    for row in rows:
+        key = make_comparison_key([row["bird1_id"], row["bird1_session_id"],
+                                   row["bird2_id"], row["bird2_session_id"]])
+        PROCESSED[key] = True
 
 
 def compute_distance(row1, row2):
-    score = 0.0
+    score = seqscore = 0.0
+    seqcount = 0
     name = FRAME['NAME']
     first_marker = FRAME['FIRST_MARKER']
-    for col in range(first_marker, row1.shape[1]):
+    markers = range(first_marker, row1.shape[1])
+    for col in markers:
         val1 = row1[name[col]].iloc[0]
         val2 = row2[name[col]].iloc[0]
         if (val1 == val2) and (val1 != "./."):
@@ -140,42 +174,60 @@ def compute_distance(row1, row2):
             v2l = val2.split("/")
             if v1l[0] in v2l or v1l[1] in v2l:
                 score += 0.5
-    return score
+        if val1 != "./." and val2 != "./.":
+            seqcount += 1
+            if val1 == val2:
+                seqscore += 1
+    return score / len(markers) * 100.0, seqscore / seqcount * 100.0
 
 
-def convert_band(iband):
-    """ Given an abbreviated color band, convert the colors to the full name
-        Keyword arguments:
-          iband: input band
-        Returns:
-          Full-color band
-    """
-    band = ""
-    field = re.findall(r"([a-z]+|\d+)", iband)
-    if len(field) != 4:
-        return None
-    if field[0] in COLOR:
-        band = COLOR[field[0]]
-    else:
-        terminate_program(f"Unknown color abbreviation {field[0]}")
-    band += field[1]
-    if field[2] in COLOR:
-        band += COLOR[field[2]]
-    else:
-        terminate_program(f"Unknown color abbreviation {field[2]}")
-    band += field[3]
-    return band
+def get_session(bird):
+    if bird in SESSION:
+        return SESSION[bird]
+    try:
+        CURSOR['bird'].execute(READ["SESSION"], [bird])
+        sid = CURSOR['bird'].fetchone()
+    except Exception as err:
+        sql_error(err)
+    if not sid:
+        terminate_program(f"No allelic state session for {bird}")
+    SESSION[bird] = sid["id"]
+    return SESSION[bird]
 
 
-def get_full_name(row, bird):
-    bday = row[BDAY_COL].iloc[0]
-    field = bday.split("/")
-    bday = "".join([field[2], field[0], field[1]])
-    fband = convert_band(bird)
-    if not fband:
-        return None
-    full = "_".join([bday, fband])
-    return full
+def compare_birds(row1, row2, id1, session1, full1, phen1, results):
+    full2 = row2["IND_NAME"].iloc[0]
+    id2 = row2[BIRD_COL].iloc[0]
+    session2 = get_session(full2)
+    phen2 = row2["MEDIAN_TEMPO"].iloc[0] or "-"
+    if full2 < full1:
+        return
+        id1, full1, session1, phen1 = id2, full2, session2, phen2
+    COUNT["potential"] += 1
+    if make_comparison_key([id1, session1, id2, session2]) in PROCESSED:
+        COUNT["present"] += 1
+        return
+    COUNT["comparisons"] += 1
+    allm, seqm = compute_distance(row1, row2)
+    relate = ""
+    if full1 in RELATIONSHIP and full2 in RELATIONSHIP[full1]:
+        relate = f"\t{RELATIONSHIP[full1][full2]}"
+    results.append(f"{full1}\t{full2}\t{phen1}\t{phen2}\t{allm:.2f}%\t{seqm:.2f}%{relate}")
+    try:
+        CURSOR['bird'].execute(WRITE["COMPARE"] % (id1,session1,"allele_match_all",
+                                                   id2,session2,allm))
+    except Exception as err:
+        LOGGER.error("Could not insert allele_match_all for %s<->%s", id1, id2)
+        LOGGER.error("Could not insert %s for %s<->%s", 'this', id1, id2)
+        sql_error(err)
+    try:
+        CURSOR['bird'].execute(WRITE["COMPARE"] % (id1,session1,"allele_match_seq",
+                                                   id2,session2,seqm))
+    except Exception as err:
+        LOGGER.error("Could not insert allele_match_seq for %s<->%s", id1, id2)
+        LOGGER.error("Could not insert %s for %s<->%s", 'this', id1, id2)
+        sql_error(err)
+    CONN['bird'].commit()
 
 
 def process_data_frame():
@@ -185,39 +237,69 @@ def process_data_frame():
         Returns:
           None
     """
-    allow = ('20120212_red2purple22', '20120912_pink25green17',  '20120912_pink30green69',  '20120912_pink69green86', 
-             '20120913_pink73green83', '20120917_pink16green20', '20140929_red68purple63',  '20141122_red21green44',
-             '20150817_red97purple74', '20151017_red49purple81', '20151017_red50purple82',  '20181104_red7purple89',
-             '20181104_red8purple90', '20191206_red91purple65',  '20191206_red92purple66',  '20191206_red94purple68', 
-             '20191206_red95purple69')
-    allow = ('20191206_red91purple65', '20191206_red92purple66', '20191206_red94purple68', '20191206_red95purple69')
+    allow = ['20140922_purple35white17', '20150422_black97black14',
+             '20180108_blue5white83', '20180108_blue10white86',
+             '20180108_blue7white84', '20180410_blue9white89',
+             '20180410_blue8white88', '20180410_blue10white90',
+             '20180410_blue7white87', '20180730_blue7white26',
+             '20180730_blue8white27', '20180730_blue11white30',
+             '20180730_blue10white29', '20180730_blue9white28',
+             '20181201_blue83white85', '20181201_blue81white2',
+             '20181201_blue82white76', '20190224_blue21white37',
+             '20190224_blue27white40', '20190224_blue25white38',
+             '20190606_blue9white69', '20190606_blue8white68',
+             '20190606_blue10white70', '20190606_blue7white67',
+             '20120913_pink73green83', '20120917_pink16green20',
+             '20140929_red68purple63',  '20141122_red21green44',
+             '20191115_orange75orange57', '20191115_orange77orange59',
+             '20161229_purple95black62',
+             '20191009_red7green100', '20191009_red1green2',
+             '20191009_red4green58', '20191009_red6green98',
+             '20191009_red3green54', '20120725_red30green6',
+             '20161227_orange74black35', '20080823_black1black3', '20120328_black27black66']
     print(f"Processing {ARG.FILE}")
+    allow = []
     LOGGER.info("Reading %s", ARG.FILE)
     dfr = pd.read_pickle(ARG.FILE)
+    dfr.sort_values(by="IND_NAME", inplace=True)
     LOGGER.info("Dimensions: %dx%d", dfr.shape[0], dfr.shape[1])
     LOGGER.info("Birds: %d", len(dfr[BIRD_COL].unique()))
     FRAME['NAME'] = list(dfr.columns)
-    FRAME['FIRST_MARKER'] = FRAME['NAME'].index("SEX") + 1
+    FRAME['FIRST_MARKER'] = FRAME['NAME'].index(SEX_COL) + 2
     birdlist = dfr[BIRD_COL].tolist()
-    processed = {}
-    for bird1 in birdlist:
+    birdlist2 = birdlist[:]
+    if allow:
+        LOGGER.info("Sample birds: %s", len(allow))
+        max_results = int((len(allow) - 1) * (len(allow)) / 2)
+    else:
+        max_results = int((len(birdlist) - 1) * (len(birdlist)) / 2)
+    LOGGER.info("Running %d comparisons", max_results)
+    results = ["Bird1\tBird2\tPhenotype1\tPhenotype2\tAll markers\tSequenced markers\tRelationship"]
+    for bird1 in tqdm(birdlist, desc="Primary", position=0):
         row1 = dfr.loc[dfr[BIRD_COL] == bird1]
-        full1 = get_full_name(row1, bird1)
-        if not full1 or (full1 not in allow):
+        full1 = row1["IND_NAME"].iloc[0]
+        if ARG.SINGLE and (ARG.SINGLE != full1):
             continue
-        #LOGGER.info("Dimensions: %dx%d", row1.shape[0], row1.shape[1])
-        #LOGGER.info("Birds: %d", len(row1[BIRD_COL].unique()))
-        for bird2 in birdlist:
+        birdlist2.remove(bird1)
+        if not full1 or (allow and (full1 not in allow)):
+            COUNT["removed"] += 1
+            continue
+        id1 = row1[BIRD_COL].iloc[0]
+        phen1 = row1["MEDIAN_TEMPO"].iloc[0]
+        session1 = get_session(full1)
+        for bird2 in tqdm(birdlist2, desc="Secondary", position=1, leave=False):
             row2 = dfr.loc[dfr[BIRD_COL] == bird2]
-            if bird1 == bird2 or bird2 in processed:
+            full2 = row2["IND_NAME"].iloc[0]
+            if (not full2) or (allow and (full2 not in allow)):
+                if full2 in allow:
+                    birdlist2.remove(bird2)
                 continue
-            full2 = get_full_name(row2, bird2)
-            if not full2 or (full2 not in allow):
-                continue
-            score = compute_distance(row1, row2)
-            print(f"{full1} x {full2} = {score}")
-        processed[bird1] = True
-
+            compare_birds(row1, row2, id1, session1, full1, phen1, results)
+    print(f"{len(results)-1}/{max_results} results")
+    if len(results) > 1:
+        with open("analysis_results.tsv", "w", encoding="ascii") as output:
+            output.write("\n".join(results) + "\n")
+    print(COUNT)
 
 
     # *****************************************************************************
@@ -226,6 +308,8 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(description="Load allelic states")
     PARSER.add_argument('--file', dest='FILE', action='store',
                         help='File', required=True)
+    PARSER.add_argument('--single', dest='SINGLE', action='store',
+                        help='Single bird to process',)
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='dev', choices=["dev", "prod"],
                         help='Manifold')
