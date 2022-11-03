@@ -181,6 +181,26 @@ JOIN bird b2 ON (br.object_id=b2.id)
 JOIN cv_term c ON (c.id = br.type_id)
 ;
 
+CREATE OR REPLACE VIEW bird_comparison_vw AS
+SELECT bc.id                 AS id
+      ,b1.name               AS bird1
+      ,s1.name               AS bird1_session
+      ,c.name                AS comparison
+      ,b2.name               AS bird2
+      ,s2.name               AS bird2_session
+      ,bc.value              AS value
+      ,bc.create_date        AS create_date
+      ,c2.name               AS relationship
+FROM bird_comparison bc
+JOIN bird b1 ON (bc.bird1_id=b1.id)
+JOIN session s1 ON (bc.bird1_session_id=s1.id)
+JOIN bird b2 ON (bc.bird2_id=b2.id)
+JOIN session s2 ON (bc.bird2_session_id=s2.id)
+JOIN cv_term c ON (c.id=bc.comparison_id)
+LEFT OUTER JOIN bird_relationship br ON (br.subject_id=bc.bird1_id AND br.object_id=bc.bird2_id)
+LEFT OUTER JOIN cv_term c2 ON (br.type_id=c2.id)
+;
+
 CREATE OR REPLACE VIEW clutch_vw AS
 SELECT c.id           AS id
       ,c.name         AS name

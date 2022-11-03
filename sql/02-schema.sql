@@ -185,6 +185,32 @@ CREATE TABLE `bird_relationship` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `bird_comparison`
+--
+DROP TABLE IF EXISTS `bird_comparison`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `bird_comparison` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `bird1_id` int(10) unsigned NOT NULL,
+  `bird1_session_id` int(10) unsigned NOT NULL,
+  `comparison_id` int(10) unsigned NOT NULL,
+  `bird2_id` int(10) unsigned NOT NULL,
+  `bird2_session_id` int(10) unsigned NOT NULL,
+  `value` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `create_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `bird_comparison_uk_ind` (`bird1_id`,`bird1_session_id`,`comparison_id`,`bird2_id`,`bird2_session_id`) USING BTREE,
+  KEY `bird_comparison_id_uk_ind` (`id`) USING BTREE,
+  CONSTRAINT `bird_comparison_type_id_fk` FOREIGN KEY (`comparison_id`) REFERENCES `cv_term` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_comparison_bird1_id_fk` FOREIGN KEY (`bird1_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_comparison_bird1_session_id_fk` FOREIGN KEY (`bird1_session_id`) REFERENCES `session` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_comparison_bird2_id_fk` FOREIGN KEY (`bird2_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_comparison_bird2_session_id_fk` FOREIGN KEY (`bird2_session_id`) REFERENCES `session` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `bird_event`
 --
 DROP TABLE IF EXISTS `bird_event`;
