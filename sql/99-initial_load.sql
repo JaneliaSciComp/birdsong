@@ -66,6 +66,9 @@ INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getC
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'borne_by','Borne by','Borne by');
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'damsel_to','Damsel to','Damsel to');
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'sibling_of','Sibling of','Sibling of');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'half_sibling_of','Half sibling of','Half sibling of');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'fostered_by','Fostered by','Fostered by');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_relationship',''),1,'fostering','Fostering','Fostering');
 
 --
 -- Bird status CV terms
@@ -106,6 +109,7 @@ INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getC
 --
 INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'genotype','Genotype','Genotype');
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('genotype',''),1,'allelic_state','Allelic state','Allelic state');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('genotype',''),1,'markers_sequenced','Markers sequenced','Number of markers sequenced');
 INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'phenotype','Phenotype','Phenotype');
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('phenotype',''),1,'median_tempo','Median song tempo','Median song tempo');
 
@@ -116,6 +120,14 @@ INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'pe
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId("permission",""),1,"admin","Administrator","Administrator");
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId("permission",""),1,"manager","Lab manager","Lab manager");
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId("permission",""),1,"edit","Edit birds","Edit birds");
+
+--
+-- Comparison terms
+--
+INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'bird_comparison','Bird comparison','Bird comparison');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_comparison',''),1,'allele_match_all','Allele match % (all)','Allele match percentage (all markers)');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_comparison',''),1,'allele_match_seq','Allele match % (sequenced)','Allele match percentage (sequenced markers)');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_comparison',''),1,'median_tempo','Median tempo','Median tempo');
 
 --
 -- Species
@@ -138,7 +150,8 @@ INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUE
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (2,'bradley.colquitt@gmail.com','Bradley','Colquitt','colquittb','bradley.colquitt@ucsf.edu','Dr. Michael Brainard Lab',1);
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='colquittb'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (44,'cady.kurtzmiott@gmail.com','Cady','Kurtz-Miott','kurtzmiottc','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (44,'cady.kurtzmiott@gmail.com','Cady','Kurtz-Miott','kurtzmiottc','unknown@ucsf.edu','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='kurtzmiottc'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (25,'no_login@gmail.com','David','Mets','metsd','dmets@phy.ucsf.edu','Dr. Michael Brainard Lab',1);
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='metsd'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
@@ -147,30 +160,32 @@ INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUE
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (23,'foad@gmail.com','Foad','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (36,'eszter@gmail.com','Eszter','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (36,'eszter@gmail.com','Eszter','Kish','','unknown@ucsf.edu','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE last='Kish'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (28,'w.hamish@gmail.com','Hamish','Mehaffey','mehaffeyw','hamish@ucsf.edu','Dr. Michael Brainard Lab',0);
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (28,'w.hamish@gmail.com','Hamish','Mehaffey','mehaffeyw','hamish@ucsf.edu','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='mehaffeyw'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (40,'huangi@gmail.com','Issac','Huang','huangi','b20ihuang@berkeley.edu','Dr. Michael Brainard Lab',1);
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='huangi'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (19,'joanne@gmail.com','Joanne','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (41,'li.kelly97@gmail.com','Kelly','Li','lij7','li@ucsf.edu','Dr. Michael Brainard Lab',0);
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (41,'li.kelly97@gmail.com','Kelly','Li','lij7','li@ucsf.edu','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='lij7'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (38,'kurtis@gmail.com','Kurtis','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (38,'kurtis@gmail.com','Kurtis','Swartz','','unknown@ucsf.edu','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE last='Swartz'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (29,'lena@gmail.com','Lena','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (18,'lucas@gmail.com','Lucas','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',1);
-INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE first='Lucas'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (18,'lucas@gmail.com','Lucas','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (16,'mark@gmail.com','Mark','Miller','millerm12','millerm@phy.ucsf.edu','Dr. Michael Brainard Lab',0);
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (26,'paul@gmail.com','Paul','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
-INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (37,'robert@gmail.com','Robert','Veline','veliner','robert.veline@ucsf.edu','Dr. Michael Brainard Lab',1);
-INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='veliner'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
+INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (37,'robert@gmail.com','Robert','Veline','veliner','robert.veline@ucsf.edu','Dr. Michael Brainard Lab',0);
 
 INSERT INTO user (id,name,first,last,janelia_id,email,organization,active) VALUES (32,'sofia@gmail.com','Sofia','Unknown','','unknown@ucsf.edu','Dr. Michael Brainard Lab',0);
 
