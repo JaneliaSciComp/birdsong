@@ -26,25 +26,23 @@ services:
     environment:
       - MYSQL_DATABASE=$MYSQL_DATABASE
       - MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-      - TZ=$TZ
-    user: "990032:93098"
+    user: "8010:8009"
     restart: unless-stopped
     networks:
           - $MYSQL_DATABASE-net
   app:
-    image: birdsong
+    build: ./api
     restart: unless-stopped
     depends_on:
       - db
     volumes:
         - ./api:/api
+        - static_volume:/api/static
     environment:
       - TZ=$TZ
       - PYTHONUNBUFFERED=1
     networks:
         - birdsong-net
-    ports:
-      - 84:8000
 
 networks:
   birdsong-net:
