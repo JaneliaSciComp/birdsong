@@ -1,0 +1,24 @@
+version: "3.7"
+services:
+  db:
+    image: mysql:8.0.31
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "$MYSQL_PORT:3306"
+    volumes:
+      - $DATA_DIR/$MYSQL_DATABASE:/var/lib/mysql
+      - ./conf:/etc/mysql/conf.d
+      - ./sql:/docker-entrypoint-initdb.d
+    environment:
+      - MYSQL_DATABASE=$MYSQL_DATABASE
+      - MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+    user: "8010:8009"
+    restart: unless-stopped
+    networks:
+          - $MYSQL_DATABASE-net
+networks:
+  birdsong-net:
+      driver: bridge
+
+volumes:
+  static_volume:
