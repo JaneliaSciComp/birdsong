@@ -264,15 +264,6 @@ def get_bird_sessions(bird):
             head = True
         sessions += "<tr><td>&nbsp;&nbsp;%s:</td><td>%s</td></tr>" % (row["type"], row["value"])
     # Genotype
-    try:
-        g.c.execute("SELECT COUNT(1) AS count FROM state_vw WHERE bird=%s AND state != './.'",
-                    bird["name"])
-        row = g.c.fetchone()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    if row:
-        sessions += "<tr><td><h5>Genotype</h5></td></tr>"
-        sessions += "<tr><td>&nbsp;&nbsp;Markers:</td><td>%s</td></tr>" % (row["count"])
     sessions += """
     <tbody>
     </table>
@@ -428,7 +419,7 @@ def set_claim_notes(ipd, result, user_id):
         Returns:
           Values added to ipd and result dicts, user_id
     '''
-    if ipd["claim"]:
+    if 'claim' in ipd and ipd["claim"]:
         try:
             g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
             row = g.c.fetchone()
@@ -771,6 +762,10 @@ def register_single_bird(ipd, result):
            + ipd["color2"] + ipd["number2"]
     band = parse_bird_name(name)
     band = band['band']
+    if 'sex' not in ipd or not ipd['sex']:
+        ipd['sex'] = "U"
+    if 'notes' not in ipd or not ipd['notes']:
+        ipd['notes'] = None
     try:
         bind = (1, name, band, ipd["nest_id"], birthnest, None, ipd["location_id"], ipd["vendor_id"],
                 user_id, ipd["notes"], ipd["start_date"], ipd["stop_date"], ipd["sex"])
@@ -781,17 +776,17 @@ def register_single_bird(ipd, result):
         bird_id = g.c.lastrowid
         result["rest"]["bird_id"].append(bird_id)
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        raise InvalidUsage("INSERT_BIRD " + sql_error(err), 500) from err
     if ipd["nest_id"]:
         try:
             create_relationship(ipd, result, bird_id, nest)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-    try:
-        if ipd["claim"]:
+    if ipd["claim"]:
+        try:
             claim_single_bird(bird_id, result['rest']['user'], ipd["location_id"])
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
 
 
 def register_birds(ipd, result):
@@ -1274,7 +1269,7 @@ def show_bird(bname): # pylint: disable=R0911
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
         if bird["user"] == user:
             try:
-                nestpull = generate_nest_pulldown(["fostering", "tutoring"], nest['id'])
+                nestpull = generate_nest_pulldown(["fostering", "tutoring"], from_nest=nest['id'])
                 if "No nest" not in nestpull:
                     controls += "Move bird to new nest" + nestpull
                 controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
@@ -1426,7 +1421,8 @@ def show_clutch(cname):
 
 
 @app.route('/newclutch')
-def new_clutch():
+@app.route('/newclutch/<string:nest_id>', methods=['GET'])
+def new_clutch(nest_id=None):
     ''' Register a new clutch
     '''
     user, face, permissions = get_user_profile()
@@ -1444,7 +1440,7 @@ def new_clutch():
                            navbar=generate_navbar('Clutches', permissions),
                            start=date.today().strftime("%Y-%m-%d"),
                            stop=date.today().strftime("%Y-%m-%d"),
-                           nestselect=generate_nest_pulldown(["breeding", "fostering"]))
+                           nestselect=generate_nest_pulldown(["breeding", "fostering"], default_nest=nest_id))
 
 
 @app.route('/nestlist', methods=['GET', 'POST'])
@@ -1502,6 +1498,7 @@ def show_nest(nname):
                                    title="SQL error", message=sql_error(err))
     nprops, birds, clutches = get_nest_properties(nest)
     auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
+    controls = "" #PLUG
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Nests', permissions),
