@@ -269,8 +269,8 @@ def get_bird_sessions(bird):
     </table>
     """
     try:
-        g.c.execute("SELECT state,COUNT(1) AS count FROM state_vw WHERE bird=%s GROUP BY 1 ORDER BY 2 DESC",
-                    bird["name"])
+        g.c.execute("SELECT state,COUNT(1) AS count FROM state_vw WHERE "
+                    + "bird=%s GROUP BY 1 ORDER BY 2 DESC", bird["name"])
         rows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -767,8 +767,9 @@ def register_single_bird(ipd, result):
     if 'notes' not in ipd or not ipd['notes']:
         ipd['notes'] = None
     try:
-        bind = (1, name, band, ipd["nest_id"], birthnest, None, ipd["location_id"], ipd["vendor_id"],
-                user_id, ipd["notes"], ipd["start_date"], ipd["stop_date"], ipd["sex"])
+        bind = (1, name, band, ipd["nest_id"], birthnest, None, ipd["location_id"],
+                ipd["vendor_id"], user_id, ipd["notes"], ipd["start_date"],
+                ipd["stop_date"], ipd["sex"])
         if app.config['DEBUG']:
             print(WRITE["INSERT_BIRD"] % bind)
         g.c.execute(WRITE["INSERT_BIRD"], bind)
@@ -807,8 +808,9 @@ def register_birds(ipd, result):
         birthnest = ipd["nest_id"]
     for bird in band:
         try:
-            bind = (1, bird["name"], bird["band"], ipd["nest_id"], birthnest, ipd["clutch_id"], loc_id,
-                    None, user_id, ipd['notes'], ipd["start_date"], ipd["stop_date"], None)
+            bind = (1, bird["name"], bird["band"], ipd["nest_id"], birthnest,
+                    ipd["clutch_id"], loc_id, None, user_id, ipd['notes'],
+                    ipd["start_date"], ipd["stop_date"], None)
             if app.config['DEBUG']:
                 print(WRITE["INSERT_BIRD"] % bind)
             g.c.execute(WRITE["INSERT_BIRD"], bind)
@@ -1440,7 +1442,8 @@ def new_clutch(nest_id=None):
                            navbar=generate_navbar('Clutches', permissions),
                            start=date.today().strftime("%Y-%m-%d"),
                            stop=date.today().strftime("%Y-%m-%d"),
-                           nestselect=generate_nest_pulldown(["breeding", "fostering"], default_nest=nest_id))
+                           nestselect=generate_nest_pulldown(["breeding", "fostering"],
+                                                             default_nest=nest_id))
 
 
 @app.route('/nestlist', methods=['GET', 'POST'])
@@ -1601,7 +1604,8 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
         fileoutput = ''
         ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
         for row in rows:
-            fileoutput += ftemplate % (row['display_name'], row['definition'], row['cnt'], row['ncnt'])
+            fileoutput += ftemplate % (row['display_name'], row['definition'],
+                                       row['cnt'], row['ncnt'])
             if row["cnt"]:
                 row["cnt"] = '<a href="/birds/location/%s">%s</a>' \
                              % (row['display_name'], row['cnt'])
@@ -1613,9 +1617,11 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
                 delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
                          + ');"><i class="fa-solid fa-trash-can fa-lg" style="color:red"></i></a>'
             if set(['admin', 'manager']).intersection(permissions):
-                locrows += template % (row['display_name'], row['definition'], row['cnt'], row['ncnt'], delcol)
+                locrows += template % (row['display_name'], row['definition'],
+                                       row['cnt'], row['ncnt'], delcol)
             else:
-                locrows += template % (row['display_name'], row['definition'], row['cnt'], row['ncnt'])
+                locrows += template % (row['display_name'], row['definition'], row['cnt'],
+                                       row['ncnt'])
         downloadable = create_downloadable('locations', fheader, ftemplate, fileoutput)
         locations = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                     + 'role="button">Download table</a>'
@@ -1739,11 +1745,11 @@ def run_search():
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     if ipd['key_type'] == 'bird':
-        result['data'] += f"<h2>Birds</h2>" + generate_birdlist_table(rows)
+        result['data'] += "<h2>Birds</h2>" + generate_birdlist_table(rows)
     elif ipd['key_type'] == 'clutch':
-        result['data'] += f"<h2>Clutches</h2>" + generate_clutchlist_table(rows)
+        result['data'] += "<h2>Clutches</h2>" + generate_clutchlist_table(rows)
     elif ipd['key_type'] == 'nest':
-        result['data'] += f"<h2>Nests</h2>" + generate_nestlist_table(rows)
+        result['data'] += "<h2>Nests</h2>" + generate_nestlist_table(rows)
     result['data'] += "<script>tableInitialize();</script>"
     return generate_response(result)
 
@@ -2507,7 +2513,8 @@ def bird_sex(bird_id, sex):
     return generate_response(result)
 
 
-@app.route('/bird/tutor/<string:bird_id>/<string:tutor_type>/<string:tutor_id>', methods=['OPTIONS', 'POST'])
+@app.route('/bird/tutor/<string:bird_id>/<string:tutor_type>/<string:tutor_id>',
+           methods=['OPTIONS', 'POST'])
 def bird_tutor(bird_id, tutor_type, tutor_id):
     '''
     Assign a tutor to a bird
@@ -2541,7 +2548,7 @@ def bird_tutor(bird_id, tutor_type, tutor_id):
     bird = get_record(bird_id, "bird")
     if not bird:
         raise InvalidUsage(f"{bird_id} is not a valid bird ID")
-    elif not bird["alive"]:
+    if not bird["alive"]:
         raise InvalidUsage(f"Bird {bird_id} is dead")
     sql = "INSERT INTO bird_tutor (bird_id,type,tutor_id) VALUES (%s,%s,%s)"
     if tutor_type == "bird":
@@ -2550,7 +2557,7 @@ def bird_tutor(bird_id, tutor_type, tutor_id):
         tutor = get_record(tutor_id, "bird")
         if not tutor:
             raise InvalidUsage(f"{tutor_id} is not a valid bird tutor ID")
-        elif not tutor["alive"]:
+        if not tutor["alive"]:
             raise InvalidUsage(f"Tutor {bird_id} is dead")
     elif tutor_type == "computer":
         try:

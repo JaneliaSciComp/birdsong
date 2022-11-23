@@ -217,7 +217,7 @@ def get_banding_and_location(ipd):
         band.append({"name": name, "band": nband})
     return band, nest, loc_id
 
-    
+
 def parse_bird_name(name):
     ''' Parse a given bird name (standard format: "20210506_red32blue45") into its components
         Keyword arguments:
