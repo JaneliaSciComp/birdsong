@@ -123,12 +123,17 @@ onload="tableInitialize();"
   {% endfor %}
   </tbody>
   </table>
+  <br>
+  <button type="submit" id="nc" class="btn btn-primary btn-sm" onclick="location.href='/newclutch/{{nest_id}}'" href="#">Add a clutch</button>
+  <br>
   {{controls|safe}}
   <br>
   {{clutches|safe}}
   <br>
   {{birds|safe}}
   {{events|safe}}
+
+  <!-- PLUG
   {% if auth == 1 %}
   <br><br>
   <h4>Add a new bird to this nest</h4>
@@ -196,4 +201,5 @@ onload="tableInitialize();"
   <br>
   <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="register_bird();" href="#">Register bird</button>
   {% endif %}
+-->
 {% endblock %}

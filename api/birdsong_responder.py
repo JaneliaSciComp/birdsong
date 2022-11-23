@@ -2559,7 +2559,6 @@ def bird_tutor(bird_id, tutor_type, tutor_id):
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
         sql = sql.replace("tutor_id", "computer_id")
-        #PLUG todo
     else:
         raise InvalidUsage(f"{tutor_type} is not a valid tutor type")
     result["rest"]["row_count"] = 0

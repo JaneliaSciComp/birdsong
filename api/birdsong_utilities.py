@@ -542,11 +542,12 @@ def generate_movement_pulldown(this_id, item_type=None, current=None):
     return controls
 
 
-def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
+def generate_nest_pulldown(ntype, from_nest=None, default_nest=None):
     ''' Generate pulldown menu of all nests (with conditions)
         Keyword arguments:
           ntype: nest type
-          clutch_id: clutch ID or current_nest ID
+          from_nest: clutch ID or current_nest ID
+          default_nest: ID of nest to select
         Returns:
           HTML menu
     '''
@@ -564,16 +565,18 @@ def generate_nest_pulldown(ntype, clutch_or_nest_id=None):
         return err
     if not rows:
         return '<span style="color:red">No nests available</span>'
-    if clutch_or_nest_id:
-        controls = '<select id="nest" onchange="select_nest(' + str(clutch_or_nest_id) \
+    if from_nest:
+        default_nest = from_nest
+        controls = '<select id="nest" onchange="select_nest(' + str(from_nest) \
                    + ',this);" class="form-control col-sm-8"><option value="">' \
                    + 'Select a new nest...</option>'
     else:
         controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
                    + 'Select a nest...</option>'
     for row in rows:
-        controls += '<option value="%s">%s %s</option>' \
-                    % (row['id'], row['location'], row['name'])
+        controls += '<option value="%s" %s>%s %s</option>' \
+                    % (row['id'], "selected" if default_nest==str(row["id"]) else "",
+                       row['location'], row['name'])
     controls += "</select><br><br>"
     return controls
 
@@ -1030,31 +1033,31 @@ def create_relationship(ipd, result, bird_id, nest):
     #    result["rest"]["relationship_id"].append(g.c.lastrowid)
     #except Exception as err:
     #    raise InvalidUsage(sql_error(err), 500) from err
-    sql = 'INSERT_REL'
+    sql = WRITE['INSERT_REL']
     try:
         bind = ("sired_by", bird_id, nest["sire_id"])
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        raise InvalidUsage("sired_by " + sql_error(err), 500) from err
     try:
         bind = ("sire_to", nest["sire_id"], bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        raise InvalidUsage("sire_to " + sql_error(err), 500) from err
     try:
         bind = ("borne_by", bird_id, nest["damsel_id"])
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        raise InvalidUsage("borne_by " + sql_error(err), 500) from err
     try:
         bind = ("damsel_to", nest["damsel_id"], bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+        raise InvalidUsage("damsel_to " + sql_error(err), 500) from err
 
 
 def execute_sql(result, sql, debug, container="data", group=None):
