@@ -1654,7 +1654,7 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
 
 @app.route('/searchlist')
 def show_search_form():
-    ''' Make an assignment for a project
+    ''' Show the search form
     '''
     user, face, _ = get_user_profile()
     if not user:
@@ -2501,6 +2501,74 @@ def bird_sex(bird_id, sex):
         bind = (sex, bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    g.db.commit()
+    return generate_response(result)
+
+
+@app.route('/bird/tutor/<string:bird_id>/<string:tutor_type>/<string:tutor_id>', methods=['OPTIONS', 'POST'])
+def bird_tutor(bird_id, tutor_type, tutor_id):
+    '''
+    Assign a tutor to a bird
+    Assign a bird or computer tutor to a bird.
+    ---
+    tags:
+      - Bird
+    parameters:
+      - in: path
+        name: bird_id
+        schema:
+          type: string
+        required: true
+        description: bird ID
+      - in: path
+        name: tutor_type
+        schema:
+          type: string
+        required: true
+        description: tutor type ("bird" or "computer")
+      - in: path
+        name: tutor_id
+        schema:
+          type: string
+        required: true
+        description: tutor ID
+    '''
+    result = initialize_result()
+    if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
+        raise InvalidUsage("You don't have permission to assign a bird's tutor")
+    bird = get_record(bird_id, "bird")
+    if not bird:
+        raise InvalidUsage(f"{bird_id} is not a valid bird ID")
+    elif not bird["alive"]:
+        raise InvalidUsage(f"Bird {bird_id} is dead")
+    sql = "INSERT INTO bird_tutor (bird_id,type,tutor_id) VALUES (%s,%s,%s)"
+    if tutor_type == "bird":
+        if bird_id == tutor_id:
+            raise InvalidUsage(f"Bird {tutor_id} can't tutor itself")
+        tutor = get_record(tutor_id, "bird")
+        if not tutor:
+            raise InvalidUsage(f"{tutor_id} is not a valid bird tutor ID")
+        elif not tutor["alive"]:
+            raise InvalidUsage(f"Tutor {bird_id} is dead")
+    elif tutor_type == "computer":
+        try:
+            g.c.execute("SELECT * FROM cv_term_vw WHERE id=%s", (tutor_id,))
+            tutor = g.c.fetchone()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        sql = sql.replace("tutor_id", "computer_id")
+        #PLUG todo
+    else:
+        raise InvalidUsage(f"{tutor_type} is not a valid tutor type")
+    result["rest"]["row_count"] = 0
+    try:
+        bind = (bird_id, tutor_type, tutor["id"])
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+        #log_bird_event(bird_id, status="moved", user=result['rest']['user'],
+        #               location_id=location_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     g.db.commit()
@@ -3368,5 +3436,5 @@ def get_cc():
 
 
 if __name__ == '__main__':
-    #app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
-    app.run(debug=True)
+    app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
+    #app.run(debug=True)
