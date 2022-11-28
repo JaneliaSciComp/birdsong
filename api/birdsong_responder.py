@@ -31,22 +31,22 @@ from birdsong_utilities import *
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, obj1):   # pylint: disable=E0202, W0221
+    def default(self, o):   # pylint: disable=E0202, W0221
         try:
-            if isinstance(obj1, datetime):
-                return obj1.strftime("%a, %-d %b %Y %H:%M:%S")
-            if isinstance(obj1, timedelta):
-                seconds = obj1.total_seconds()
+            if isinstance(o, datetime):
+                return o.strftime("%a, %-d %b %Y %H:%M:%S")
+            if isinstance(o, timedelta):
+                seconds = o.total_seconds()
                 hours = seconds // 3600
                 minutes = (seconds % 3600) // 60
                 seconds = seconds % 60
                 return f"{hours:02d}:{minutes:02d}:{seconds:.02f}"
-            iterable = iter(obj1)
+            iterable = iter(o)
         except TypeError:
             pass
         else:
             return list(iterable)
-        return JSONEncoder.default(self, obj1)
+        return JSONEncoder.default(self, o)
 
 
 __version__ = "0.0.2"
@@ -180,7 +180,7 @@ def initialize_result():
         raise InvalidUsage('You must authorize to use this endpoint', 401)
     if app.config["LAST_TRANSACTION"] and time() - app.config["LAST_TRANSACTION"] \
        >= app.config["RECONNECT_SECONDS"]:
-        print("Seconds since last transaction: %d" % (time() - app.config["LAST_TRANSACTION"]))
+        print(f"Seconds since last transaction: {time() - app.config['LAST_TRANSACTION']}")
         g.db.ping()
     app.config["LAST_TRANSACTION"] = time()
     return result
@@ -195,6 +195,39 @@ def generate_response(result):
     '''
     result["rest"]["elapsed_time"] = str(timedelta(seconds=(time() - START_TIME)))
     return jsonify(**result)
+
+
+def get_bird_tutors(bird):
+    ''' Get a bird's tutors
+        Keyword arguments:
+          bird: bird name
+        Returns: Tutor records
+    '''
+    try:
+        g.c.execute("SELECT type,IFNULL(bird_tutor,computer_tutor) AS tutor,create_date FROM bird_tutor_vw WHERE bird=%s ORDER BY create_date", (bird,))
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise err
+    tutors = ""
+    if rows:
+        header = ['Tutor', 'Date']
+        tutors = '''
+        <br><br>
+        <h3>Tutors</h3>
+        <table id="tutors" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        tutors += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr>' + ''.join("<td>%s</td>")*(len(header)) + '</tr>'
+        for row in rows:
+            tutor = row["tutor"]
+            if row["type"] == "bird":
+                tutor = f"<a href='/bird/{tutor}'>{tutor}</a>"
+            outcol = [tutor, row["create_date"]]
+            tutors += template % tuple(outcol)
+        tutors += "</tbody></table>"
+    return tutors
 
 
 def get_bird_events(bird):
@@ -260,9 +293,9 @@ def get_bird_sessions(bird):
     head = False
     for row in rows:
         if not head:
-            sessions += "<tr><td><h5>%s</h5></td></tr>" % (row["cv"])
+            sessions += f"<tr><td><h5>{row['cv']}</h5></td></tr>"
             head = True
-        sessions += "<tr><td>&nbsp;&nbsp;%s:</td><td>%s</td></tr>" % (row["type"], row["value"])
+        sessions += f"<tr><td>&nbsp;&nbsp;{row['type']}:</td><td>{row['value']}</td></tr>"
     # Genotype
     sessions += """
     <tbody>
@@ -314,12 +347,12 @@ def populate_bird_locations(bprops, bird):
         Returns: additionalinformation in bprops list
     '''
     if bird["clutch"]:
-        bprops.append(["Clutch:", '<a href="/clutch/%s">%s</a>' % tuple([bird["clutch"]]*2)])
+        bprops.append(["Clutch:", f"<a href='/clutch/{bird['clutch']}'>{bird['clutch']}</a>"])
     else:
         bprops.append(["Clutch:", "None"])
     if bird["nest"]:
         bprops.append(["Nest:", bird["nest_location"] \
-                      + ' <a href="/nest/%s">%s</a>' % tuple([bird["nest"]]*2)])
+                      + f" <a href='/nest/{bird['nest']}'>{bird['nest']}</a>"])
     else:
         bprops.append(["Nest:", "Outside vendor"])
     if bird["vendor"]:
@@ -327,7 +360,7 @@ def populate_bird_locations(bprops, bird):
     bprops.append(["Location:", bird['location']])
     if bird["birth_nest"]:
         bprops.append(["Birth nest:", bird["birth_nest_location"] \
-                       + ' <a href="/nest/%s">%s</a>' % tuple([bird["birth_nest"]]*2)])
+                       + f" <a href='/nest/{bird['nest']}'>{bird['nest']}</a>"])
     bprops.append(["Claimed by:", apply_color(bird["username"] or "UNCLAIMED", "gold",
                                               (not bird["user"]))])
 
@@ -348,11 +381,11 @@ def populate_bird_properties(bprops, bird, user, permissions):
         birdsex = generate_sex_pulldown(bird["id"])
     bprops.append(["Sex:", birdsex])
     if bird["sire"]:
-        bprops.append(["Sire:", '<a href="/bird/%s">%s</a>' % tuple([bird["sire"]]*2)])
+        bprops.append(["Sire:", f"<a href='/bird/{bird['sire']}'>{bird['sire']}</a>"])
     else:
         bprops.append(["Sire:", "None"])
     if bird["damsel"]:
-        bprops.append(["Damsel:", '<a href="/bird/%s">%s</a>' % tuple([bird["damsel"]]*2)])
+        bprops.append(["Damsel:", f"<a href='/bird/{bird['damsel']}'>{bird['damsel']}</a>"])
     else:
         bprops.append(["Damsel:", "None"])
     early = str(bird["hatch_early"]).split(' ', maxsplit=1)[0]
@@ -389,7 +422,7 @@ def get_bird_properties(bird, user, permissions):
             raise InvalidUsage(sql_error(err), 500) from err
         print(rows)
         if rows:
-            parent = " (%s)" % ("sire" if bird["sex"] == "M" else "damsel")
+            parent = f" ({'sire' if bird['sex'] == 'M' else 'damsel'})"
     bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
     bprops.append(["Band:", bird["band"]])
     populate_bird_properties(bprops, bird, user, permissions)
@@ -405,27 +438,19 @@ def get_bird_properties(bird, user, permissions):
             continue
         bprops.append([prop["type_display"], prop["value"]])
     try:
-        return bprops, get_bird_events(bird["name"])
+        return bprops, get_bird_tutors(bird["name"]), get_bird_events(bird["name"])
     except Exception as err:
         raise err
 
 
-def set_claim_notes(ipd, result, user_id):
+def set_claim_notes(ipd, result):
     ''' Set claim and notes info for a bird
         Keyword arguments:
           ipd: request payload
           result: result dictionary
-          user_id: user ID
         Returns:
-          Values added to ipd and result dicts, user_id
+          Values added to ipd and result dicts
     '''
-    if 'claim' in ipd and ipd["claim"]:
-        try:
-            g.c.execute("SELECT id FROM user WHERE name=%s", (result['rest']['user'],))
-            row = g.c.fetchone()
-            user_id = row["id"]
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
     if ("vendor_id" not in ipd) or (not ipd["vendor_id"]):
         ipd["vendor_id"] = None
     result['rest']['row_count'] = 0
@@ -472,7 +497,7 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
                 if not row[col]:
                     row[col] = ""
             rclass = 'alive' if row['alive'] else 'dead'
-            bird = '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2)
+            bird = f"<a href='/bird/{row['name']}'>{row['name']}</a>"
             bird = colorband(row["name"], bird)
             if not row['alive']:
                 row['current_age'] = '-'
@@ -482,7 +507,7 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
             birds += template % tuple(outcol)
         birds += "</tbody></table>"
     else:
-        birds = "There are no additional birds in this %s." % (ttype)
+        birds = f"There are no additional birds in this {ttype}."
     return birds
 
 
@@ -493,7 +518,7 @@ def get_clutch_properties(clutch):
           birds: birds in clutch
     '''
     cprops = []
-    nest = '<a href="/nest/%s">%s</a>' % tuple([clutch['nest']]*2)
+    nest = f"<a href='/nest/{clutch['nest']}'>{clutch['nest']}</a>"
     cprops.append(["Name:", colorband(clutch["name"], clutch["name"])])
     cprops.append(["Nest:", nest])
     cprops.append(["Clutch early:", strip_time(clutch["clutch_early"])])
@@ -516,18 +541,18 @@ def get_nest_properties(nest):
     nprops.append(["Band:", nest["band"]])
     nprops.append(["Location:", nest["location"]])
     if (nest["sire"] and nest["damsel"]):
-        nprops.append(["Sire:", '<a href="/bird/%s">%s</a>' % tuple([nest["sire"]]*2)])
-        nprops.append(["Damsel:", '<a href="/bird/%s">%s</a>' % tuple([nest["damsel"]]*2)])
+        nprops.append(["Sire:", f"<a href='/bird/{nest['sire']}'>{nest['sire']}</a>"])
+        nprops.append(["Damsel:", f"<a href='/bird/{nest['damsel']}'>{nest['damsel']}</a>"])
         dnd = [nest["sire"], nest["damsel"]]
     else:
         dnd = []
         for idx in range(1, 4):
             if app.config['DEBUG']:
                 print(nest["female" + str(idx)])
-            if nest["female" + str(idx)]:
-                nprops.append(["Female " + str(idx), '<a href="/bird/%s">%s</a>'
-                               % tuple([nest["female" + str(idx)]]*2)])
-                dnd.append(nest["female" + str(idx)])
+            fnest = nest["female" + str(idx)]
+            if fnest:
+                nprops.append(["Female " + str(idx), f"<a href='/bird/{fnest}'>{fnest}</a>"])
+                dnd.append(fnest)
     nprops.append(["Create date:", nest["create_date"]])
     nprops.append(["Notes:", nest["notes"]])
     active = apply_color("YES", "lime", nest["active"], "red", "NO")
@@ -538,31 +563,8 @@ def get_nest_properties(nest):
             uses.append(use)
     if uses:
         nprops.append(["Utilization:", ", ".join(uses)])
-    # Clutch list
-    try:
-        g.c.execute("SELECT * FROM clutch_vw WHERE nest=%s ORDER BY 1", (nest["name"]))
-        rows = g.c.fetchall()
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
-    if rows:
-        header = ['Name', 'Notes', 'Clutch early', "Clutch late"]
-        clutches = '''
-        <h3>Clutches</h3>
-        <table id="clutches" class="tablesorter standard">
-        <thead>
-        <tr><th>
-        '''
-        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
-        template = '<tr>' + ''.join("<td>%s</td>")*len(header) + "</tr>"
-        for row in rows:
-            nname = '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2)
-            outcol = [nname, row['notes'], strip_time(row['clutch_early']),
-                      strip_time(row["clutch_late"])]
-            clutches += template % tuple(outcol)
-        clutches += "</tbody></table>"
-    else:
-        clutches = "There are no clutches in this nest."
-    return nprops, get_birds_in_clutch_or_nest(nest, dnd, "nest"), clutches
+    return nprops, get_birds_in_clutch_or_nest(nest, dnd, "nest"), \
+           get_clutches_in_nest(nest["name"])
 
 
 def get_nest_events(nest):
@@ -631,8 +633,7 @@ def generate_bird_event(bid):
     pulldown = '<select id="bevent" class="form-control col-sm-11" onchange="fix_event();">' \
                + '<option value="">Select an event...</option>'
     for row in rows:
-        pulldown += '<option value="%s">%s</option>' \
-                    % (row["cv_term"], row["display_name"])
+        pulldown += f"<option value='{row['cv_term']}'>{row['display_name']}</option>"
     pulldown += "</select>"
     controls = '''
                <div class="eventadd" style="padding: 0 0 10px 15px"><h4>Add an event</h4>
@@ -704,7 +705,7 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
         columns.append("event_date")
         values.append("%s")
         bind.append(kwarg["date"])
-    sql = "INSERT INTO bird_event (%s) VALUES (%s)"  % (",".join(columns), ",".join(values))
+    sql = "INSERT INTO bird_event (%s) VALUES (%s)", (",".join(columns), ",".join(values))
     try:
         if app.config['DEBUG']:
             print(sql % tuple(bind))
@@ -740,7 +741,7 @@ def register_single_bird(ipd, result):
           Values added in result dict
     '''
     user_id = None
-    set_claim_notes(ipd, result, user_id)
+    set_claim_notes(ipd, result)
     birthnest = None
     if "nest_id" in ipd:
         # Get colors
@@ -801,7 +802,7 @@ def register_birds(ipd, result):
     band, nest, loc_id = get_banding_and_location(ipd)
     # User
     user_id = None
-    set_claim_notes(ipd, result, user_id)
+    set_claim_notes(ipd, result)
     birthnest = ipd["nest_id"]
     nrow = get_nest_from_id(ipd["nest_id"])
     if nrow['location'].startswith("N"):
@@ -844,7 +845,7 @@ def get_user_profile():
     token = request.cookies.get(app.config["TOKEN"])
     resp = decode_token(token)
     user = resp["email"]
-    face = '<img class="user_image" src="%s" alt="%s">' % (resp['picture'], user)
+    face = f"<img class='user_image' src='{resp['picture']}' alt='{user}'>"
     permissions = check_permission(user)
     return user, face, permissions
 
@@ -857,7 +858,7 @@ def get_google_provider_cfg():
           Google discovery configuration
     '''
     if app.config["DEBUG"]:
-        print("Getting Google discovery information from %s" % (app.config["GOOGLE_DISCOVERY_URL"]))
+        print(f"Getting Google discovery information from {app.config['GOOGLE_DISCOVERY_URL']}")
     return requests.get(app.config["GOOGLE_DISCOVERY_URL"]).json()
 
 
@@ -923,8 +924,7 @@ def generate_navbar(active, permissions=None):
                 link = ('/' + heading[:-2] + 'list').lower()
             else:
                 link = ('/' + heading[:-1] + 'list').lower()
-            nav += '<a class="nav-link" href="%s">%s</a>' % (link, heading)
-            nav += '</li>'
+            nav += f"<a class='nav-link' href='{link}'>{heading}</a></li>"
     nav += '</ul></div></nav>'
     return nav
 
@@ -941,7 +941,7 @@ def login():
     google_provider_cfg = get_google_provider_cfg()
     authorization_endpoint = google_provider_cfg["authorization_endpoint"]
     if app.config["DEBUG"]:
-        print("Getting request URI from %s" % (authorization_endpoint))
+        print(f"Getting request URI from {authorization_endpoint}")
     # Use library to construct the request for Google login and provide
     # scopes that let you retrieve user's profile from Google
     request_uri = CLIENT.prepare_request_uri(
@@ -950,7 +950,7 @@ def login():
         scope=["openid", "email", "profile"]
     )
     if app.config["DEBUG"]:
-        print("Request URI is %s" % (request_uri))
+        print(f"Request URI is {request_uri}")
     return redirect(request_uri)
 
 
@@ -965,7 +965,7 @@ def login_callback():
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
     if app.config["DEBUG"]:
-        print("Getting token URL from %s" % (token_endpoint))
+        print(f"Getting token URL from {token_endpoint}")
     # Get tokens using the client ID and secret
     token_url, headers, body = CLIENT.prepare_token_request(
         token_endpoint,
@@ -974,7 +974,7 @@ def login_callback():
         code=code
     )
     if app.config["DEBUG"]:
-        print("Getting token from %s" % (token_url))
+        print(f"Getting token from {token_url}")
     token_response = requests.post(
         token_url,
         headers=headers,
@@ -982,19 +982,19 @@ def login_callback():
         auth=(app.config['GOOGLE_CLIENT_ID'], app.config['GOOGLE_CLIENT_SECRET']),
     )
     if app.config["DEBUG"]:
-        print("Got a %s token" % (token_response.json()["token_type"]))
+        print(f"Got a {token_response.json()['token_type']}")
     # Parse the token
     CLIENT.parse_request_body_response(json.dumps(token_response.json()))
     # Get the user's profile information
     userinfo_endpoint = google_provider_cfg["userinfo_endpoint"]
     uri, headers, body = CLIENT.add_token(userinfo_endpoint)
     if app.config["DEBUG"]:
-        print("Getting user information from %s" % (uri))
+        print(f"Getting user information from {uri}")
     userinfo_response = requests.get(uri, headers=headers, data=body)
     my_token = token_response.json().get("id_token")
     try:
         rec = get_user_by_name(userinfo_response.json()["email"])
-    except Exception as err:
+    except Exception:
         pass
     if not rec or not rec['active']:
         return "User is no longer active.", 400
@@ -1002,7 +1002,7 @@ def login_callback():
     if not userinfo_response.json().get("email_verified"):
         return "User email not available or not verified by Google.", 400
     if app.config["DEBUG"]:
-        print("Logged in as %s" % (userinfo_response.json()["email"]))
+        print(f"Logged in as {userinfo_response.json()['email']}")
     # Set token and send user back to homepage
     response = make_response(redirect("/"))
     response.set_cookie(app.config['TOKEN'], my_token)
@@ -1018,7 +1018,7 @@ def profile():
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     try:
         rec = get_user_by_name(user)
     except Exception as err:
@@ -1026,7 +1026,7 @@ def profile():
                                title="SQL error", message=sql_error(err))
     if not rec:
         return render_template("error.html", urlroot=request.url_root,
-                               title='User error', message=("Could not find user %s" % user))
+                               title='User error', message=f"Could not find user {user}")
     uprops = []
     name = []
     for nkey in ['first', 'last']:
@@ -1043,51 +1043,14 @@ def profile():
                            navbar=generate_navbar('Users', permissions), uprops=uprops, token=token)
 
 
-@app.route('/userlist')
-def user_list():
-    ''' Show list of users
+def add_user_form(permissions):
+    ''' Generate add user form HTML
+        Keyword arguments:
+          permissions: permissions
+        Returns:
+          HTML
     '''
-    user, face, permissions = get_user_profile()
-    if not user:
-        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
-    if not validate_user(user):
-        return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
-    if not set(['admin', 'manager']).intersection(permissions):
-        return redirect("/profile")
-    try:
-        g.c.execute('SELECT * FROM user_vw ORDER BY janelia_id')
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    urows = ''
-    template = '<tr class="%s">' + ''.join("<td>%s</td>")*6 + "</tr>"
-    organizations = {}
-    for row in rows:
-        rclass = re.sub('[^0-9a-zA-Z]+', '_', row['organization'])
-        organizations[rclass] = row['organization']
-        link = '<a href="/user/%s">%s</a>' % (row['name'], row['name'])
-        if not row['permissions']:
-            row['permissions'] = '-'
-        else:
-            showarr = []
-            for perm in row['permissions'].split(','):
-                if perm in app.config['PROTOCOLS']:
-                    this_perm = '<span style="color:cyan">%s</span>' % app.config['PROTOCOLS'][perm]
-                elif perm in app.config['GROUPS']:
-                    this_perm = '<span style="color:gold">%s</span>' % perm
-                else:
-                    this_perm = '<span style="color:orange">%s</span>' % perm
-                showarr.append(this_perm)
-            row['permissions'] = ', '.join(showarr)
-        given_name = ', '.join([row['last'], row['first']])
-        if not row['active']:
-            given_name = f"<s>{given_name}</s>"
-        urows += template % (rclass, given_name, link,
-                             row['janelia_id'], row['email'], row['organization'],
-                             row['permissions'])
-    adduser = ''
+    adduser = ""
     if set(["admin"]).intersection(permissions):
         adduser = '''
         <br>
@@ -1137,10 +1100,58 @@ def user_list():
         </div>
         <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="add_user();" href="#" disabled="disabled">Add user</button>
         '''
+    return adduser
+
+
+@app.route('/userlist')
+def user_list():
+    ''' Show list of users
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    if not set(['admin', 'manager']).intersection(permissions):
+        return redirect("/profile")
+    try:
+        g.c.execute('SELECT * FROM user_vw ORDER BY janelia_id')
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    urows = ''
+    template = '<tr class="%s">' + ''.join("<td>%s</td>")*6 + "</tr>"
+    organizations = {}
+    for row in rows:
+        rclass = re.sub('[^0-9a-zA-Z]+', '_', row['organization'])
+        organizations[rclass] = row['organization']
+        link = f"<a href='/user/{row['name']}'>{row['name']}</a>"
+        if not row['permissions']:
+            row['permissions'] = '-'
+        else:
+            showarr = []
+            for perm in row['permissions'].split(','):
+                if perm in app.config['PROTOCOLS']:
+                    this_perm = f"<span style='color:cyan'>{app.config['PROTOCOLS'][perm]}</span>"
+                elif perm in app.config['GROUPS']:
+                    this_perm = f"<span style='color:gold'>{perm}</span>"
+                else:
+                    this_perm = f"<span style='color:orange'>{perm}</span>"
+                showarr.append(this_perm)
+            row['permissions'] = ', '.join(showarr)
+        given_name = ', '.join([row['last'], row['first']])
+        if not row['active']:
+            given_name = f"<s>{given_name}</s>"
+        urows += template % (rclass, given_name, link,
+                             row['janelia_id'], row['email'], row['organization'],
+                             row['permissions'])
     return render_template('userlist.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'], user=user,
                            navbar=generate_navbar('Users', permissions),
-                           organizations=organizations, userrows=urows, adduser=adduser)
+                           organizations=organizations, userrows=urows,
+                           adduser=add_user_form(permissions))
 
 
 @app.route('/user/<string:uname>')
@@ -1152,7 +1163,7 @@ def user_config(uname):
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     if not set(["admin"]).intersection(permissions) and (uname != user):
         return render_template("error.html", urlroot=request.url_root,
                                title='Permission error',
@@ -1164,8 +1175,7 @@ def user_config(uname):
                                title="SQL error", message=sql_error(err))
     if not rec:
         return render_template("error.html", urlroot=request.url_root,
-                               title='Not found',
-                               message="User %s was not found" % uname)
+                               title='Not found', message=f"User {uname} was not found")
     uprops = []
     uprops.append(['Name:', ' '.join([rec['first'], rec['last']])])
     uprops.append(['Janelia ID:', rec['janelia_id']])
@@ -1258,7 +1268,7 @@ def show_bird(bname): # pylint: disable=R0911
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     try:
         bird, nest = get_bird_nest_info(bname)
     except Exception as err:
@@ -1266,7 +1276,7 @@ def show_bird(bname): # pylint: disable=R0911
                                title="SQL error", message=sql_error(err))
     if not bird:
         return render_template("error.html", urlroot=request.url_root,
-                               title='Not found', message="Bird %s was not found" % bname)
+                               title='Not found', message=f"Bird {bname} was not found")
     controls = '<br>'
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
         if bird["user"] == user:
@@ -1290,7 +1300,7 @@ def show_bird(bname): # pylint: disable=R0911
         '''
         controls = controls % (bird['id'])
     try:
-        bprops, events = get_bird_properties(bird, user, permissions)
+        bprops, tutors, events = get_bird_properties(bird, user, permissions)
         sessions = get_bird_sessions(bird)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
@@ -1299,7 +1309,7 @@ def show_bird(bname): # pylint: disable=R0911
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
                            bird=bname, bprops=bprops, sessions=sessions,
-                           events=events, controls=controls)
+                           tutors=tutors, events=events, controls=controls)
 
 
 @app.route('/birds/location/<string:location>', methods=['GET'])
@@ -1311,7 +1321,7 @@ def birds_in_location(location):
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     result = initialize_result()
     ipd = receive_payload(result)
     ipd["stype"] = "sbl"
@@ -1345,7 +1355,7 @@ def add_bird():
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     if not set(['admin', 'manager']).intersection(permissions):
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
@@ -1372,7 +1382,7 @@ def show_clutches(): # pylint: disable=R0914,R0912,R0915
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     result = initialize_result()
     ipd = receive_payload(result)
     try:
@@ -1415,7 +1425,7 @@ def show_clutch(cname):
     #                + generate_nest_pulldown(["breeding", "fostering"], clutch["id"])
     auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
     cprops, birds = get_clutch_properties(clutch)
-    birds += '<input type="hidden" id="clutch_id" value="%s">' % (clutch["id"])
+    birds += f"<input type='hidden' id='clutch_id' value='{clutch['id']}'>"
     return render_template('clutch.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Clutches', permissions),
@@ -1432,7 +1442,7 @@ def new_clutch(nest_id=None):
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     if not set(['admin', 'edit', 'manager']).intersection(permissions):
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
@@ -1455,7 +1465,7 @@ def show_nests(): # pylint: disable=R0914,R0912,R0915
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     result = initialize_result()
     ipd = receive_payload(result)
     try:
@@ -1519,7 +1529,7 @@ def nests_in_location(location):
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     result = initialize_result()
     ipd = receive_payload(result)
     ipd["stype"] = "sbl"
@@ -1550,7 +1560,7 @@ def new_nest():
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     if not validate_user(user):
         return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message="User %s is not registered" % user)
+                               title="Unknown user", message=f"User {user} is not registered")
     if not set(['admin', 'manager']).intersection(permissions):
         return render_template("error.html", urlroot=request.url_root,
                                title='Not permitted',
@@ -1607,11 +1617,9 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
             fileoutput += ftemplate % (row['display_name'], row['definition'],
                                        row['cnt'], row['ncnt'])
             if row["cnt"]:
-                row["cnt"] = '<a href="/birds/location/%s">%s</a>' \
-                             % (row['display_name'], row['cnt'])
+                row["cnt"] = f"<a href='/birds/location/{row['display_name']}'{row['cnt']}</a>"
             if row["ncnt"]:
-                row["ncnt"] = '<a href="/nests/location/%s">%s</a>' \
-                             % (row['display_name'], row['ncnt'])
+                row["ncnt"] = f"<a href='/nests/location/{row['display_name']}'>{row['ncnt']}</a>"
             delcol = ""
             if row['cnt'] == 0 and row['ncnt'] == 0:
                 delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
