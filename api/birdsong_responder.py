@@ -204,7 +204,8 @@ def get_bird_tutors(bird):
         Returns: Tutor records
     '''
     try:
-        g.c.execute("SELECT type,IFNULL(bird_tutor,computer_tutor) AS tutor,create_date FROM bird_tutor_vw WHERE bird=%s ORDER BY create_date", (bird,))
+        g.c.execute("SELECT type,IFNULL(bird_tutor,computer_tutor) AS tutor"
+                    + ",create_date FROM bird_tutor_vw WHERE bird=%s ORDER BY create_date", (bird,))
         rows = g.c.fetchall()
     except Exception as err:
         raise err
@@ -705,7 +706,7 @@ def log_bird_event(bird_id=None, status="hatched", user=None, **kwarg):
         columns.append("event_date")
         values.append("%s")
         bind.append(kwarg["date"])
-    sql = "INSERT INTO bird_event (%s) VALUES (%s)", (",".join(columns), ",".join(values))
+    sql = "INSERT INTO bird_event (" + ",".join(columns) + ") VALUES (" + ",".join(values) + ")"
     try:
         if app.config['DEBUG']:
             print(sql % tuple(bind))
@@ -781,7 +782,7 @@ def register_single_bird(ipd, result):
         raise InvalidUsage("INSERT_BIRD " + sql_error(err), 500) from err
     if ipd["nest_id"]:
         try:
-            create_relationship(ipd, result, bird_id, nest)
+            create_relationship(result, bird_id, nest)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
     if ipd["claim"]:
@@ -820,12 +821,12 @@ def register_birds(ipd, result):
             result["rest"]["bird_id"].append(bird_id)
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        create_relationship(ipd, result, bird_id, nest)
+        create_relationship(result, bird_id, nest)
     try:
         for bird_id in result["rest"]["bird_id"]:
             log_bird_event(bird_id, user=result['rest']['user'], nest_id=ipd["nest_id"],
                            location_id=loc_id)
-            if ipd["claim"]:
+            if "claim" in ipd and ipd["claim"]:
                 log_bird_event(bird_id, status="claimed", user=result['rest']['user'],
                                location_id=loc_id)
     except Exception as err:
@@ -859,7 +860,7 @@ def get_google_provider_cfg():
     '''
     if app.config["DEBUG"]:
         print(f"Getting Google discovery information from {app.config['GOOGLE_DISCOVERY_URL']}")
-    return requests.get(app.config["GOOGLE_DISCOVERY_URL"]).json()
+    return requests.get(app.config["GOOGLE_DISCOVERY_URL"], timeout=10).json()
 
 
 def generate_navbar(active, permissions=None):
@@ -978,7 +979,7 @@ def login_callback():
     token_response = requests.post(
         token_url,
         headers=headers,
-        data=body,
+        data=body, timeout=10,
         auth=(app.config['GOOGLE_CLIENT_ID'], app.config['GOOGLE_CLIENT_SECRET']),
     )
     if app.config["DEBUG"]:
@@ -990,7 +991,7 @@ def login_callback():
     uri, headers, body = CLIENT.add_token(userinfo_endpoint)
     if app.config["DEBUG"]:
         print(f"Getting user information from {uri}")
-    userinfo_response = requests.get(uri, headers=headers, data=body)
+    userinfo_response = requests.get(uri, headers=headers, data=body, timeout=10)
     my_token = token_response.json().get("id_token")
     try:
         rec = get_user_by_name(userinfo_response.json()["email"])
@@ -1220,7 +1221,7 @@ def download(fname):
 
 @app.route('/')
 @app.route('/birdlist', methods=['GET', 'POST'])
-def show_birds(): # pylint: disable=R0914,R0912,R0915
+def show_birds(): # pylint: disable=R0914,R0912,R0915, R0911
     ''' Birds
     '''
     if not request.cookies.get(app.config['TOKEN']):
@@ -1236,10 +1237,13 @@ def show_birds(): # pylint: disable=R0914,R0912,R0915
     ipd = receive_payload(result)
     if not ipd or ("which" not in ipd):
         ipd = {"which": "mine"}
+    sql = bird_summary_query(ipd, user)
+    if not sql:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message="Invalid input data")
+    if app.config["DEBUG"]:
+        print(sql)
     try:
-        sql = bird_summary_query(ipd, user)
-        if app.config["DEBUG"]:
-            print(sql)
         g.c.execute(sql)
         rows = g.c.fetchall()
     except Exception as err:
@@ -3419,7 +3423,7 @@ def get_allelic_state(bird=""):
     return generate_response(result)
 
 
-@app.route('/cc', methods=['GET'])
+@app.route('/colortest', methods=['GET'])
 def get_cc():
     '''
     Get marker information

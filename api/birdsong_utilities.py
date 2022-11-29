@@ -94,8 +94,9 @@ def apply_color(text, true_color, condition=True, false_color=None, false_text=N
             text = false_text
         if not false_color:
             return text
-    return "<span style='color:%s'>%s</span>" \
-           % ((true_color, text) if condition else (false_color, text))
+    if condition:
+        return f"<span style='color:{true_color}'>{text}</span>"
+    return f"<span style='color:{false_color}'>{text}</span>"
 
 
 def colorband(name, text=None, big=False):
@@ -114,13 +115,13 @@ def colorband(name, text=None, big=False):
     if re.search(r"\d", name):
         cols = re.findall("[a-z]+", name)
         for col in cols:
-            html += '<div class="%s %s"></div>' % (bclass, col)
+            html += f"<div class='{bclass} {col}'></div>"
     else:
         cols = re.finditer(r"black|blue|brown|green|orange|pink|purple|red|tut|white|yellow", name)
         for col in cols:
-            html += '<div class="%s %s"></div>' % (bclass, col.group())
+            html += f"<div class='{bclass} {col.group()}'></div>"
     if text:
-        html += '&nbsp;<div class="flexcol">%s</div>' % (text,)
+        html += f"&nbsp;<div class='flexcol'>{text}</div>"
     html += '</div>'
     return html
 
@@ -143,15 +144,21 @@ def convert_banding(term):
     newterm = ""
     # If the input banding has short colors, invert the color dict
     if not(match[0] in color and match[2] in color):
-        color = {color[k] : k for k in color}
+        color = dict(map(reversed, color.items()))
     newterm = term.replace(original, "".join([color[match[0]], match[1],
                                               color[match[2]], match[3]]))
     return newterm
 
 
-def get_nest_from_id(id):
+def get_nest_from_id(nid):
+    ''' Get nest information
+        Keyword arguments:
+          nid: nest ID
+        Returns:
+          nest record
+    '''
     try:
-        g.c.execute("SELECT * FROM nest_vw WHERE id=%s", (id,))
+        g.c.execute("SELECT * FROM nest_vw WHERE id=%s", (nid,))
         row = g.c.fetchone()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -230,12 +237,12 @@ def parse_bird_name(name):
     for row in rows:
         color[row['cv_term']] = row['display_name']
     field = re.findall(r"([a-z]+|\d+)", name)
-    hash = {"date": field[0]}
-    hash["band"] = color[field[1]] + field[2] + color[field[3]] + field[4]
-    hash["color"] = {"upper": field[1], "lower": field[3]}
-    hash["abbreviation"] = {"upper": color[field[1]], "lower": color[field[3]]}
-    hash["number"] = {"upper": field[2], "lower": field[4]}
-    return hash
+    bhash = {"date": field[0]}
+    bhash["band"] = color[field[1]] + field[2] + color[field[3]] + field[4]
+    bhash["color"] = {"upper": field[1], "lower": field[3]}
+    bhash["abbreviation"] = {"upper": color[field[1]], "lower": color[field[3]]}
+    bhash["number"] = {"upper": field[2], "lower": field[4]}
+    return bhash
 
 
 def parse_nest_band(band):
@@ -250,9 +257,9 @@ def parse_nest_band(band):
     for row in rows:
         color[row['display_name']] = row['cv_term']
     field = re.findall(r"([a-z][a-z])", band)
-    hash = {"color": {"upper": color[field[0]], "lower": color[field[1]]}}
-    hash['abbreviation'] = {"upper": field[0], "lower": field[1]}
-    return hash
+    nhash = {"color": {"upper": color[field[0]], "lower": color[field[1]]}}
+    nhash['abbreviation'] = {"upper": field[0], "lower": field[1]}
+    return nhash
 
 
 # *****************************************************************************
@@ -293,11 +300,11 @@ def generate_birdlist_table(rows, showall=True):
                 outcol.insert(3, row["username"])
             fileoutput += ftemplate % tuple(outcol)
             rclass = 'alive' if row['alive'] else 'dead'
-            bird = colorband(row['name'], '<a href="/bird/%s">%s</a>' % tuple([row['name']]*2))
+            bird = colorband(row['name'], f"<a href='/bird/{row['name']}'>{row['name']}</a>")
             if not row['alive']:
                 row['current_age'] = '-'
             alive = apply_color("YES", "lime", row["alive"], "red", "NO")
-            nest = row['nest_location'] + ' <a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
+            nest = row['nest_location'] + f" <a href='/nest/{row['nest']}'>{row['nest']}</a>"
             outcol = [rclass, bird, row['band'], nest, row['location'], row['sex'],
                       row['notes'], row['current_age'], alive]
             if showall:
@@ -305,8 +312,8 @@ def generate_birdlist_table(rows, showall=True):
             birds += template % tuple(outcol)
         birds += "</tbody></table>"
         downloadable = create_downloadable('birds', header, ftemplate, fileoutput)
-        birds = '<a class="btn btn-outline-info btn-sm" href="/download/%s" ' \
-                % (downloadable) + 'role="button">Download table</a>' + birds
+        birds = f"<a class='btn btn-outline-info btn-sm' href='/download/{downloadable}' " \
+                + 'role="button">Download table</a>' + birds
         birds = f"<span style='font-size:16pt'>Birds found: {len(rows)}</span>" + "<br>" + birds
     else:
         birds = "<span style='font-size:16pt'>No birds were found</span>"
@@ -336,15 +343,16 @@ def generate_clutchlist_table(rows):
             fileoutput += ftemplate % (row['name'], row['nest_location'] + ' ' + row['nest'],
                                        strip_time(row['clutch_early']),
                                        strip_time(row['clutch_late']), cnt, row['notes'])
-            nest = row['nest_location'] +  ' <a href="/nest/%s">%s</a>' % tuple([row['nest']]*2)
-            clutch = colorband(row['name'], '<a href="/clutch/%s">%s</a>' % tuple([row['name']]*2))
+            nest = row['nest_location'] +  f" <a href='/nest/{row['nest']}'>{row['nest']}</a>"
+            clutch = colorband(row['name'], f"<a href='/clutch/{row['name']}'>{row['name']}</a>")
             clutches += template % (clutch, nest, strip_time(row['clutch_early']),
                                     strip_time(row['clutch_late']), cnt, row['notes'])
         clutches += "</tbody></table>"
         downloadable = create_downloadable('clutches', header, ftemplate, fileoutput)
         clutches = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
                    + 'role="button">Download table</a>' + clutches
-        clutches = f"<span style='font-size:16pt'>Clutches found: {len(rows)}</span>" + "<br>" + clutches
+        clutches = f"<span style='font-size:16pt'>Clutches found: {len(rows)}</span>" \
+                   + "<br>" + clutches
     else:
         clutches = "<span style='font-size:16pt'>No clutches were found</span>"
     return clutches
@@ -372,10 +380,10 @@ def generate_nestlist_table(rows):
             cnt = get_clutch_or_nest_count(row["id"], 'nest')
             fileoutput += ftemplate % (row['name'], row['band'], row['sire'],
                                        row['damsel'], cnt, row['location'], row['notes'])
-            nest = colorband(row['name'], '<a href="/nest/%s">%s</a>' % tuple([row['name']]*2))
-            sire = colorband(row['sire'], '<a href="/bird/%s">%s</a>' % tuple([row['sire']]*2))
-            damsel = colorband(row['damsel'], '<a href="/bird/%s">%s</a>' \
-                                              % tuple([row['damsel']]*2))
+            nest = colorband(row['name'], f"<a href='/nest/{row['name']}'>{row['name']}</a>")
+            sire = colorband(row['sire'], f"<a href='/bird/{row['sire']}'>{row['sire']}</a>")
+            damsel = colorband(row['damsel'], f"<a href='/bird/{row['damsel']}'>"
+                               + f"{row['damsel']}</a>")
             nests += template % (nest, row['band'], sire, damsel,
                                  cnt, row['location'], row['notes'])
         nests += "</tbody></table>"
@@ -415,9 +423,9 @@ def generate_bird_pulldown(sex, sid):
             if row[rname]:
                 exclude[row[rname]] = 1
     # Birds
-    sql = "SELECT id,name FROM bird where sex='%s' AND alive=1 ORDER BY 2" % (sex)
+    sql = "SELECT id,name FROM bird where sex='%s' AND alive=1 ORDER BY 2"
     try:
-        g.c.execute(sql)
+        g.c.execute(sql, (sex,))
         irows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -427,11 +435,10 @@ def generate_bird_pulldown(sex, sid):
             rows.append(row)
     if not rows:
         return '<span style="color:red">No birds available</span>'
-    controls = '<select id="%s" class="form-control col-sm-8"><option value="">' % (sid)\
+    controls = f"<select id='{sid}' class='form-control col-sm-8'><option value=''>" \
                + 'Select a bird...</option>'
     for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["id"], row["name"])
+        controls += f"<option value='{row['id']}'>{row['name']}</option>"
     controls += "</select>"
     return controls
 
@@ -453,14 +460,13 @@ def generate_claim_pulldown(sid, simple=False):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
+        controls = f"<select id='{sid}'><option value=''>" \
                    + 'Select a claimant...</option>'
     else:
-        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+        controls = f"<select id='{sid}' class='form-control col-sm-5'><option value=''>" \
                    + 'Select a claimant...</option>'
     for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["username"], row["username"])
+        controls += f"<option value='{row['username']}'>{row['username']}</option>"
     controls += "</select>"
     return controls
 
@@ -476,14 +482,13 @@ def generate_color_pulldown(sid, simple=False):
     controls = ''
     rows = get_cv_terms('color')
     if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
+        controls = f"<select id='{sid}'><option value=''>" \
                    + 'Select a color...</option>'
     else:
-        controls = '<select id="%s" class="form-control col-sm-5"><option value="">' % (sid)\
+        controls = f"<select id='{sid}' class='form-control col-sm-5'><option value=''>" \
                    + 'Select a color...</option>'
     for row in sorted(rows, key=lambda d: d['cv_term']):
-        controls += '<option value="%s">%s</option>' \
-                    % (row["cv_term"], row["cv_term"])
+        controls += f"<option value='{row['cv_term']}'>{row['cv_term']}</option>"
     controls += "</select>"
     return controls
 
@@ -506,14 +511,14 @@ def generate_location_pulldown(sid, used=True, simple=False):
     except Exception as err:
         return err
     if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
+        controls = f"<select id='{sid}'><option value=''>" \
                    + 'Select a location...</option>'
     else:
-        controls = '<select id="%s" class="form-control col-sm-10"><option value="">' % (sid)\
+        controls = f"<select id='{sid}' class='form-control col-sm-10'><option value=''>" \
                    + 'Select a location...</option>'
     for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["name"] if "name" in row else row["id"], row["display_name"])
+        controls += f"<option value='{row['name'] if 'name' in row else row['id']}'>" \
+                    + f"{row['display_name']}</option>"
     controls += "</select>"
     return controls
 
@@ -530,14 +535,13 @@ def generate_movement_pulldown(this_id, item_type=None, current=None):
     controls = ""
     rows = get_cv_terms('location')
     if this_id:
-        controls = "Move %s to new location" % ("nest" if item_type != "bird" else "bird")
+        controls = f"Move {'nest' if item_type != 'bird' else 'bird'} to new location"
     controls += '<select id="location" class="form-control col-sm-8" onchange="select_location(' \
                 + str(this_id) + ',this);"><option value="">Select a new location...</option>'
     for row in rows:
         if row["display_name"] == current:
             continue
-        controls += '<option value="%s">%s</option>' \
-                    % (row['id'], row['display_name'])
+        controls += f"<option value='{row['id']}'>{row['display_name']}</option>"
     controls += "</select><br>"
     return controls
 
@@ -574,9 +578,9 @@ def generate_nest_pulldown(ntype, from_nest=None, default_nest=None):
         controls = '<select id="nest" class="form-control col-sm-8"><option value="">' \
                    + 'Select a nest...</option>'
     for row in rows:
-        controls += '<option value="%s" %s>%s %s</option>' \
-                    % (row['id'], "selected" if default_nest==str(row["id"]) else "",
-                       row['location'], row['name'])
+        controls += f"<option value='{row['id']}' " \
+                    + f"{'selected' if default_nest==str(row['id']) else ''}>" \
+                    + f"{row['location']} {row['name']}</option>"
     controls += "</select><br><br>"
     return controls
 
@@ -595,14 +599,13 @@ def generate_vendor_pulldown(sid, simple=False):
     except Exception as err:
         return err
     if simple:
-        controls = '<select id="%s"><option value="">' % (sid)\
+        controls = f"<select id='{sid}'><option value=''>" \
                    + 'Select a vendor...</option>'
     else:
-        controls = '<select id="%s" class="form-control col-sm-10"><option value="">' % (sid)\
+        controls = f"<select id='{sid}' class='form-control col-sm-10'><option value=''>" \
                    + 'Select a vendor...</option>'
     for row in rows:
-        controls += '<option value="%s">%s</option>' \
-                    % (row["id"], row["display_name"])
+        controls += f"<option value='{row['id']}'>{row['display_name']}</option>"
     controls += "</select>"
     return controls
 
@@ -630,8 +633,7 @@ def generate_sex_pulldown(this_id):
     controls += '<select id="sex" class="form-control col-sm-8" onchange="select_sex(' \
                 + str(this_id) + ',this);"><option value="">Select a sex...</option>'
     for sex in ["M", "F"]:
-        controls += '<option value="%s">%s</option>' \
-                    % (sex, sex)
+        controls += f"<option value='{sex}'>{sex}</option>"
     controls += "</select>"
     return controls
 
@@ -736,8 +738,8 @@ def build_permissions_table(calling_user, user):
         perm = row["cv_term"]
         display = row["display_name"]
         val = 'checked="checked"' if perm in permissions else ''
-        check = '<input type="checkbox" %s id="%s" %s onchange="changebox(this);">' \
-                % (val, row["cv_term"], disabled)
+        check = f"<input type='checkbox' {val} id='{row['cv_term']}' " \
+                + f"{disabled} onchange='changebox(this);'>"
         if row["cv_term"] in permissions:
             permissions.remove(row["cv_term"])
         parray.append(template % (display, check))
@@ -798,7 +800,7 @@ def get_user_id(user):
           user: user
     '''
     try:
-        g.c.execute("SELECT id FROM user WHERE name='%s'" % user)
+        g.c.execute("SELECT id FROM user WHERE name=%s", (user))
         row = g.c.fetchone()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -835,7 +837,7 @@ def process_color_search(ipd):
           sql: SQL statement
           bind: bind tuple
     '''
-    sql = "SELECT * FROM %s_vw WHERE name " % (ipd['key_type'])
+    sql = "SELECT * FROM %s_vw WHERE name ", (ipd['key_type'])
     if ipd['uppercolor']:
         if ipd['lowercolor']:
             sql += "REGEXP %s"
@@ -901,14 +903,17 @@ def get_search_sql(ipd):
         bind = (ipd['location'])
     elif ipd['stype'] == 'sbt':
         check_missing_parms(ipd, ['key_text'])
-        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
+        bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%", "%" \
+                + ipd['key_text'] + "%")
         if ipd['key_type'] == 'bird':
-            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR band like %s OR notes LIKE %s ORDER BY name'
+            sql = 'SELECT * FROM bird_vw WHERE name LIKE %s OR band like %s OR ' \
+                  + 'notes LIKE %s ORDER BY name'
         elif ipd['key_type'] == 'clutch':
             sql = 'SELECT * FROM clutch_vw WHERE name LIKE %s OR notes LIKE %s ORDER BY name'
             bind = ("%" + ipd['key_text'] + "%", "%" + ipd['key_text'] + "%")
         elif ipd['key_type'] == 'nest':
-            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR band like %s OR notes LIKE %s ORDER BY name'
+            sql = 'SELECT * FROM nest_vw WHERE name LIKE %s OR band like %s OR ' \
+                  + 'notes LIKE %s ORDER BY name'
     elif ipd['stype'] == 'sbc':
         sql, bind = process_color_search(ipd)
     elif ipd['stype'] == 'sbn':
@@ -951,7 +956,23 @@ def add_key_value_pair(key, val, separator, sql, bind):
     return sql, bind
 
 
-def bird_summary_query(ipd, user):
+def valid_dates(ipd):
+    ''' Check for valid srat/stop dates
+        Keyword arguments:
+          ipd: request payload
+        Returns:
+          True or False
+    '''
+    if "start_date" in ipd and ipd["start_date"]:
+        if not re.fullmatch(r"^\d{4}-\d{2}-\d{2}$", ipd["start_date"]):
+            return False
+    if "stop_date" in ipd and ipd["stop_date"]:
+        if not re.fullmatch(r"^\d{4}-\d{2}-\d{2}$", ipd["stop_date"]):
+            return False
+    return True
+
+
+def bird_summary_query(ipd, user): # pylint: disable=R0912
     ''' Build a bird summary query
         Keyword arguments:
           ipd: request payload
@@ -961,6 +982,8 @@ def bird_summary_query(ipd, user):
     '''
     sql = READ["BSUMMARY"]
     clause = []
+    if not valid_dates(ipd):
+        return False
     if "start_date" in ipd and ipd["start_date"] and "stop_date" in ipd and ipd["stop_date"]:
         clause.append((" ('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
                        + "('%s' BETWEEN DATE(hatch_early) AND DATE(hatch_late)) OR "
@@ -968,16 +991,16 @@ def bird_summary_query(ipd, user):
                        + "(DATE(hatch_late) BETWEEN '%s' AND '%s')")
                       % ((ipd['start_date'], ipd["stop_date"]) * 3))
     elif "start_date" in ipd and ipd["start_date"]:
-        clause.append(" (DATE(hatch_early) >= '%s' OR DATE(hatch_late) >= '%s')"
-                      % tuple([ipd['start_date']]*2))
+        clause.append(f" (DATE(hatch_early) >= '{ipd['start_date']}' OR " \
+                      + f"DATE(hatch_late) >= '{ipd['start_date']}')")
     elif "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" (DATE(hatch_early) <= '%s' OR DATE(hatch_late) <= '%s')"
-                      % tuple([ipd["stop_date"]]*2))
+        clause.append(f" (DATE(hatch_early) <= '{ipd['stop_date']}' OR " \
+                      + f"DATE(hatch_late) <= '{ipd['stop_date']}')")
     if "which" in ipd:
         if ipd["which"] == "mine":
-            clause.append(" user='%s'" % user)
+            clause.append(f" user='{user}'")
         elif ipd["which"] == "eligible":
-            clause.append(" (user='%s' OR user IS NULL)" % user)
+            clause.append(f" (user='{user}' OR user IS NULL)")
         elif ipd["which"] == "claimed":
             clause.append(" user IS NOT NULL")
         elif ipd["which"] == "unclaimed":
@@ -1003,36 +1026,26 @@ def clutch_summary_query(ipd):
     sql = READ["CSUMMARY"]
     clause = []
     if "start_date" in ipd and ipd["start_date"]:
-        clause.append(" (DATE(clutch_start) >= '%s' OR DATE(clutch_end) >= '%s')"
-                      % tuple([ipd['start_date']]*2))
+        clause.append(f" (DATE(clutch_start) >= '{ipd['start_date']}' OR " \
+                      + f"DATE(clutch_end) >= '{ipd['start_date']}')")
     if "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" (DATE(clutch_start) <= '%s' OR DATE(clutch_end) >= '%s')"
-                      % tuple([ipd["stop_date"]]*2))
+        clause.append(f" (DATE(clutch_start) <= '{ipd['stop_date']}' OR " \
+                      + f"DATE(clutch_end) >= '{ipd['stop_date']}')")
     if clause:
         where = ' AND '.join(clause)
         sql = sql.replace("ORDER BY", "WHERE "  + where + " ORDER BY")
     return sql
 
 
-def create_relationship(ipd, result, bird_id, nest):
+def create_relationship(result, bird_id, nest):
     ''' Create a bird relationship
         Keyword arguments:
-          ipd: request payload
           result: result dictionary
           bird_id: bird ID
           nest: nest record
         Returns:
           SQL query
     '''
-    #sql = "INSERT INTO bird_relationship (type,bird_id,sire_id,damsel_id,relationship_start) " \
-    #      + "VALUES ('genetic',%s,%s,%s,%s)"
-    #ry:
-    #    bind = (bird_id, nest["sire_id"], nest["damsel_id"], ipd["start_date"])
-    #    g.c.execute(sql, bind)
-    #    result["rest"]["row_count"] += g.c.rowcount
-    #    result["rest"]["relationship_id"].append(g.c.lastrowid)
-    #except Exception as err:
-    #    raise InvalidUsage(sql_error(err), 500) from err
     sql = WRITE['INSERT_REL']
     try:
         bind = ("sired_by", bird_id, nest["sire_id"])
@@ -1072,9 +1085,8 @@ def execute_sql(result, sql, debug, container="data", group=None):
     '''
     sql, bind = generate_sql(result, sql)
     if group:
-        add = " GROUP BY %s" % (group)
+        add = f" GROUP BY {group}"
         if "ORDER BY" in sql:
-            print("Order")
             sql = sql.replace("ORDER BY", add + " ORDER BY")
         else:
             sql += add
@@ -1149,6 +1161,39 @@ def get_cv_terms(ccv):
     return rows
 
 
+def get_clutches_in_nest(nest):
+    ''' Return an HTML-formatted list of clutches
+        Keyword arguments:
+          nest: nest name
+        Returns:
+           Clutches table
+    '''
+    try:
+        g.c.execute("SELECT * FROM clutch_vw WHERE nest=%s ORDER BY 1", (nest,))
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if rows:
+        header = ['Name', 'Notes', 'Clutch early', "Clutch late"]
+        clutches = '''
+        <h3>Clutches</h3>
+        <table id="clutches" class="tablesorter standard">
+        <thead>
+        <tr><th>
+        '''
+        clutches += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        template = '<tr>' + ''.join("<td>%s</td>")*len(header) + "</tr>"
+        for row in rows:
+            nname = f"<a href='/clutch/{row['name']}'>{row['name']}</a>"
+            outcol = [nname, row['notes'], strip_time(row['clutch_early']),
+                      strip_time(row["clutch_late"])]
+            clutches += template % tuple(outcol)
+        clutches += "</tbody></table>"
+    else:
+        clutches = "There are no clutches in this nest."
+    return clutches
+
+
 def get_clutch_or_nest_count(cnid, which="clutch"):
     ''' Return the number of birds in a clutch or nest
         Keyword arguments:
@@ -1158,7 +1203,7 @@ def get_clutch_or_nest_count(cnid, which="clutch"):
            Bird count
     '''
     try:
-        sql = "SELECT COUNT(1) AS cnt FROM bird WHERE %s_id=%s" % (which, cnid)
+        sql = f"SELECT COUNT(1) AS cnt FROM bird WHERE {which}_id={cnid}"
         g.c.execute(sql)
         rows = g.c.fetchall()
     except Exception as err:
@@ -1213,7 +1258,7 @@ def get_user_by_name(uname):
           user record
     '''
     try:
-        g.c.execute("SELECT * FROM user_vw WHERE name='%s'" % uname)
+        g.c.execute("SELECT * FROM user_vw WHERE name=%s", (uname))
         row = g.c.fetchone()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -1230,9 +1275,9 @@ def nest_summary_query(ipd):
     sql = READ["NSUMMARY"]
     clause = []
     if "start_date" in ipd and ipd["start_date"]:
-        clause.append(" DATE(create_date) >= '%s'" % ipd['start_date'])
+        clause.append(f" DATE(create_date) >= '{ipd['start_date']}'")
     if "stop_date" in ipd and ipd["stop_date"]:
-        clause.append(" DATE(create_date) <= '%s'" % ipd['stop_date'])
+        clause.append(f" DATE(create_date) <= '{ipd['stop_date']}'")
     if clause:
         where = " AND ".join(clause)
         sql = sql.replace("ORDER BY", "WHERE " + where + " ORDER BY")
@@ -1246,9 +1291,9 @@ def sql_error(err):
     '''
     error_msg = ''
     try:
-        error_msg = "MySQL error [%d]: %s" % (err.args[0], err.args[1])
+        error_msg = f"MySQL error [{err.args[0]}]: {err.args[1]}"
     except IndexError:
-        error_msg = "Error: %s" % err
+        error_msg = f"Error: {err}"
     if error_msg:
         print(error_msg)
     return error_msg
@@ -1285,16 +1330,16 @@ def call_responder(server, endpoint):
           endpoint: REST endpoint
     '''
     if server not in CONFIG:
-        raise Exception("Configuration key %s is not defined" % (server))
+        raise Exception(f"Configuration key {server} is not defined")
     url = CONFIG[server]['url'] + endpoint
     try:
-        req = requests.get(url)
+        req = requests.get(url, timeout=10)
     except requests.exceptions.RequestException as err:
         print(err)
         raise InvalidUsage(sql_error(err), 500) from err
     if req.status_code == 200:
         return req.json()
-    print("Could not get response from %s: %s" % (url, req.text))
+    print(f"Could not get response from {url}: {req.text}")
     #raise InvalidUsage("Could not get response from %s: %s" % (url, req.text))
     raise InvalidUsage(req.text, req.status_code)
 
@@ -1309,8 +1354,8 @@ def create_downloadable(name, header, template, content):
         Returns:
           File name
     '''
-    fname = "%s_%s_%s.tsv" % (name, random_string(), datetime.today().strftime("%Y%m%d%H%M%S"))
-    with open("/tmp/%s" % (fname), "w", encoding="utf8") as text_file:
+    fname = f"{name}_{random_string()}_{datetime.today().strftime('%Y%m%d%H%M%S')}.tsv"
+    with open(f"/tmp/{fname}", "w", encoding="utf8") as text_file:
         text_file.write(template % tuple(header))
         text_file.write(content)
     return fname
