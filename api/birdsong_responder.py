@@ -207,6 +207,7 @@ def get_bird_tutors(bird):
         g.c.execute("SELECT type,IFNULL(bird_tutor,computer_tutor) AS tutor"
                     + ",create_date FROM bird_tutor_vw WHERE bird=%s ORDER BY create_date", (bird,))
         rows = g.c.fetchall()
+        print(rows)
     except Exception as err:
         raise err
     tutors = ""
@@ -421,10 +422,8 @@ def get_bird_properties(bird, user, permissions):
             rows = g.c.fetchall()
         except Exception as err:
             raise InvalidUsage(sql_error(err), 500) from err
-        print(rows)
         if rows:
             parent = f" ({'sire' if bird['sex'] == 'M' else 'damsel'})"
-    bprops.append(["Name:", colorband(bird["name"], bird["name"] + parent)])
     bprops.append(["Band:", bird["band"]])
     populate_bird_properties(bprops, bird, user, permissions)
     try:
@@ -1282,27 +1281,33 @@ def show_bird(bname): # pylint: disable=R0911
         return render_template("error.html", urlroot=request.url_root,
                                title='Not found', message=f"Bird {bname} was not found")
     controls = '<br>'
+    # Dialogs for live birds
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
-        if bird["user"] == user:
+        # Create dialogs for nest, location, and event (owner only)
+        if set(['admin', 'manager']).intersection(permissions) or bird["user"] == user:
             try:
                 nestpull = generate_nest_pulldown(["fostering", "tutoring"], from_nest=nest['id'])
                 if "No nest" not in nestpull:
                     controls += "Move bird to new nest" + nestpull
                 controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
+                controls += "Select a new tutor" + generate_tutor_pulldown(bird['id'])
                 controls += generate_bird_event(bird['id'])
             except Exception as err:
                 return render_template("error.html", urlroot=request.url_root,
                                        title="SQL error", message=sql_error(err))
+        # Claim a live bird
         elif not bird["user"]:
             controls += '''
             <button type="button" class="btn btn-success btn-sm" onclick='update_bird(%s,"claim");'>Claim bird</button>
             '''
             controls = controls % (bird['id'])
+    # Allow admins and managers to resurrect a bird
     if not(bird["alive"]) and set(['admin', 'manager']).intersection(permissions):
         controls += '''
         <button type="button" class="btn btn-info btn-sm" onclick='update_bird(%s,"alive");'>Mark bird as alive</button>
         '''
         controls = controls % (bird['id'])
+    # Get experimental sessions
     try:
         bprops, tutors, events = get_bird_properties(bird, user, permissions)
         sessions = get_bird_sessions(bird)
@@ -1312,7 +1317,7 @@ def show_bird(bname): # pylint: disable=R0911
     return render_template('bird.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
-                           bird=bname, bprops=bprops, sessions=sessions,
+                           bird=colorband(bname, bname, True), bprops=bprops, sessions=sessions,
                            tutors=tutors, events=events, controls=controls)
 
 
@@ -2530,7 +2535,7 @@ def bird_sex(bird_id, sex):
 def bird_tutor(bird_id, tutor_type, tutor_id):
     '''
     Assign a tutor to a bird
-    Assign a bird or computer tutor to a bird.
+    Assign a bird or computer tutor to a bird. Allowable for bird owner or admin/manager.
     ---
     tags:
       - Bird
@@ -2555,9 +2560,11 @@ def bird_tutor(bird_id, tutor_type, tutor_id):
         description: tutor ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
-        raise InvalidUsage("You don't have permission to assign a bird's tutor")
+    permissions = check_permission(result["rest"]["user"])
     bird = get_record(bird_id, "bird")
+    if not (set(['admin', 'manager']).intersection(permissions) \
+            or bird["user"] == result["rest"]["user"]):
+        raise InvalidUsage("You don't have permission to assign a bird's tutor")
     if not bird:
         raise InvalidUsage(f"{bird_id} is not a valid bird ID")
     if not bird["alive"]:
@@ -2670,7 +2677,7 @@ def dead_bird(bird_id):
         description: bird ID
     '''
     result = initialize_result()
-    if not check_permission(result["rest"]["user"], ["admin", "edit", 'manager']):
+    if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
         raise InvalidUsage("You don't have permission to report a bird as dead")
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET alive=0,death_date=CURRENT_TIMESTAMP(),user_id=NULL WHERE id=%s"
@@ -3454,5 +3461,5 @@ def get_cc():
 
 
 if __name__ == '__main__':
-    app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
-    #app.run(debug=True)
+    #app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
+    app.run(debug=True)

@@ -585,6 +585,54 @@ def generate_nest_pulldown(ntype, from_nest=None, default_nest=None):
     return controls
 
 
+def generate_tutor_pulldown(bird_id):
+    ''' Generate pulldown menu of all eligible tutors (with conditions)
+        Keyword arguments:
+          None
+        Returns:
+          HTML menu
+    '''
+    #onchange="select_location('+ str(bird_id) + ',this)
+    controls = '<select id="tutor" class="form-control col-sm-8" onchange="select_tutor(' \
+               + str(bird_id) + ',this)" ><option value="">' \
+               + 'Select a tutor...</option>'
+    # Current tutor
+    sql = "SELECT * FROM bird_tutor WHERE bird_id=%s ORDER BY create_date DESC LIMIT 1"
+    try:
+        g.c.execute(sql, (bird_id))
+        trow = g.c.fetchone()
+    except Exception as err:
+        return err
+    # Computers
+    sql = "SELECT id,display_name FROM cv_term_vw WHERE cv='tutor' AND is_current=1 ORDER BY 2"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        return err
+    if not rows:
+        return '<span style="color:red">No tutors available</span>'
+    for row in rows:
+        if trow and trow["type"] == "computer" and trow["computer_id"] == row['id']:
+            continue
+        controls += f"<option value='computer_{row['id']}'>{row['display_name']}</option>"
+    # Birds
+    sql = "SELECT id,name FROM bird_vw WHERE sex='M' AND alive=1 ORDER BY 2"
+    try:
+        g.c.execute(sql)
+        rows = g.c.fetchall()
+    except Exception as err:
+        return err
+    if not rows:
+        return '<span style="color:red">No tutors available</span>'
+    for row in rows:
+        if trow and trow["type"] == "bird" and trow["tutor_id"] == row['id']:
+            continue
+        controls += f"<option value='bird_{row['id']}'>{row['name']}</option>"
+    controls += "</select><br><br>"
+    return controls
+
+
 def generate_vendor_pulldown(sid, simple=False):
     ''' Generate pulldown menu of all vendors
         Keyword arguments:
