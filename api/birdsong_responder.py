@@ -393,11 +393,9 @@ def populate_bird_properties(bprops, bird, user, permissions):
     early = str(bird["hatch_early"]).split(' ', maxsplit=1)[0]
     late = str(bird["hatch_late"]).split(' ', maxsplit=1)[0]
     bprops.append(["Hatch date:", " - ".join([early, late])])
-    if bird["alive"]:
-        bprops.append(["Current age:", bird["current_age"]])
     alive = apply_color("YES", "lime", bird["alive"], "red", "NO")
-    if not bird["alive"]:
-        bprops.append(["Death date:", bird["death_date"]])
+    alive += f" (Current age: {bird['current_age']})" if bird["alive"] \
+             else f" (Death date: {bird['death_date']})"
     bprops.append(["Alive:", alive])
     birdnotes = bird["notes"]
     if (not birdnotes) and bird["alive"] and \
