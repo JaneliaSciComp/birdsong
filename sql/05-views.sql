@@ -109,7 +109,6 @@ SELECT b.id           AS id
       ,c.name         AS clutch
       ,b1.name        AS sire
       ,b2.name        AS damsel
-      ,b.tutor        AS tutor
       ,l.name         AS location
       ,u.name         AS user
       ,CASE WHEN LENGTH(u.last) THEN CONCAT_WS(", ",u.last,u.first) ELSE NULL END AS username
@@ -167,6 +166,19 @@ FROM bird_property bp
 JOIN bird b ON (bp.bird_id = b.id)
 JOIN cv_term ON (bp.type_id = cv_term.id)
 JOIN cv ON (cv_term.cv_id = cv.id)
+;
+
+CREATE OR REPLACE VIEW bird_tutor_vw AS
+SELECT bt.id                 AS id
+      ,b1.name               AS bird
+      ,bt.type               AS type
+      ,b2.name               AS bird_tutor
+      ,cv_term.name          AS computer_tutor
+      ,bt.create_date        AS create_date
+FROM bird_tutor bt
+JOIN bird b1 ON (bt.bird_id=b1.id)
+LEFT OUTER JOIN bird b2 ON (bt.tutor_id=b2.id)
+LEFT OUTER JOIN cv_term ON (bt.computer_id = cv_term.id)
 ;
 
 CREATE OR REPLACE VIEW bird_relationship_vw AS

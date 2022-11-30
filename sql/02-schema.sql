@@ -122,7 +122,6 @@ CREATE TABLE `bird` (
   `birth_nest_id` int(10) unsigned,
   `vendor_id` int(10) unsigned DEFAULT NULL,
   `clutch_id` int(10) unsigned,
-  `tutor` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `location_id` int(10) unsigned NOT NULL,
   `user_id` int(10) unsigned,
   `sex` varchar(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -162,6 +161,27 @@ CREATE TABLE `bird_property` (
   CONSTRAINT `bird_property_bird_id_fk` FOREIGN KEY (`bird_id`) REFERENCES `bird` (`id`) ON DELETE CASCADE ON UPDATE NO ACTION,
   CONSTRAINT `bird_property_type_id_fk` FOREIGN KEY (`type_id`) REFERENCES `cv_term` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=64766 DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `bird_tutor`
+--
+DROP TABLE IF EXISTS `bird_tutor`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `bird_tutor` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `bird_id` int(10) unsigned NOT NULL,
+  `type` varchar(12) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tutor_id` int(10) unsigned DEFAULT NULL,
+  `computer_id` int(10) unsigned DEFAULT NULL,
+  `create_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `bird_tutor_id_uk_ind` (`id`) USING BTREE,
+  CONSTRAINT `bird_tutor_bird_id_fk` FOREIGN KEY (`bird_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_tutor_tutor_id_fk` FOREIGN KEY (`tutor_id`) REFERENCES `bird` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION,
+  CONSTRAINT `bird_tutor_computer_id_fk` FOREIGN KEY (`computer_id`) REFERENCES `cv_term` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --

@@ -130,6 +130,12 @@ INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getC
 INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('bird_comparison',''),1,'median_tempo','Median tempo','Median tempo');
 
 --
+-- Computer tutor terms
+--
+INSERT INTO cv (version,is_current,name,display_name,definition) VALUES (1,1,'tutor','Turor','Computer tutor');
+INSERT INTO cv_term (cv_id,is_current,name,display_name,definition) VALUES (getCVId('tutor',''),1,'Computer 1','Computer 1','Computer 1');
+
+--
 -- Species
 --
 INSERT INTO species (common_name,genus,species,taxonomy_id,code) VALUES ("Bengalese finch","Lonchura","striata domestica","299123","BF");
