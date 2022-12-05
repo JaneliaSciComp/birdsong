@@ -201,35 +201,37 @@ def get_bird_tutors(bird):
     ''' Get a bird's tutors
         Keyword arguments:
           bird: bird name
-        Returns: Tutor records
+        Returns: Current tutor, tutor records
     '''
     try:
         g.c.execute("SELECT type,IFNULL(bird_tutor,computer_tutor) AS tutor"
                     + ",create_date FROM bird_tutor_vw WHERE bird=%s ORDER BY create_date", (bird,))
         rows = g.c.fetchall()
-        print(rows)
     except Exception as err:
         raise err
-    tutors = ""
+    current = None
+    html = ""
     if rows:
         header = ['Tutor', 'Date']
-        tutors = '''
+        html = '''
         <br><br>
         <h3>Tutors</h3>
         <table id="tutors" class="tablesorter standard">
         <thead>
         <tr><th>
         '''
-        tutors += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+        html += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
         template = '<tr>' + ''.join("<td>%s</td>")*(len(header)) + '</tr>'
         for row in rows:
             tutor = row["tutor"]
             if row["type"] == "bird":
                 tutor = f"<a href='/bird/{tutor}'>{tutor}</a>"
             outcol = [tutor, row["create_date"]]
-            tutors += template % tuple(outcol)
-        tutors += "</tbody></table>"
-    return tutors
+            html += template % tuple(outcol)
+            if not current:
+                current = tutor
+        html += "</tbody></table>"
+    return current, html
 
 
 def get_bird_events(bird):
@@ -367,13 +369,14 @@ def populate_bird_locations(bprops, bird):
                                               (not bird["user"]))])
 
 
-def populate_bird_properties(bprops, bird, user, permissions):
+def populate_bird_properties(bprops, bird, user, permissions, current):
     ''' Populate bird properties (minus the bird_property table)
         Keyword arguments:
           bprops: bird property list
           bird: bird record
           user: user
           permissions: user permissions
+          current: current tutor
         Returns: additionalinformation in bprops list
     '''
     populate_bird_locations(bprops, bird)
@@ -397,6 +400,8 @@ def populate_bird_properties(bprops, bird, user, permissions):
     alive += f" (Current age: {bird['current_age']})" if bird["alive"] \
              else f" (Death date: {bird['death_date']})"
     bprops.append(["Alive:", alive])
+    if current:
+        bprops.append(["Tutor:", current])
     birdnotes = bird["notes"]
     if (not birdnotes) and bird["alive"] and \
        set(['admin', 'edit', 'manager']).intersection(permissions) and user == bird["user"]:
@@ -423,7 +428,8 @@ def get_bird_properties(bird, user, permissions):
         if rows:
             parent = f" ({'sire' if bird['sex'] == 'M' else 'damsel'})"
     bprops.append(["Band:", bird["band"]])
-    populate_bird_properties(bprops, bird, user, permissions)
+    current, tutor_html = get_bird_tutors(bird["name"])
+    populate_bird_properties(bprops, bird, user, permissions, current)
     try:
         g.c.execute("SELECT type_display,value FROM bird_property_vw WHERE name=%s"
                     "ORDER BY 1", (bird["name"],))
@@ -436,7 +442,7 @@ def get_bird_properties(bird, user, permissions):
             continue
         bprops.append([prop["type_display"], prop["value"]])
     try:
-        return bprops, get_bird_tutors(bird["name"]), get_bird_events(bird["name"])
+        return bprops, tutor_html, get_bird_events(bird["name"])
     except Exception as err:
         raise err
 
@@ -875,7 +881,10 @@ def generate_navbar(active, permissions=None):
       <div class="collapse navbar-collapse" id="navbarSupportedContent">
         <ul class="navbar-nav mr-auto">
     '''
-    for heading in ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Users']:
+    headings = ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Users']
+    if "admin" in permissions:
+        headings.append("Admin")
+    for heading in headings:
         basic = '<li class="nav-item active">' if heading == active else '<li class="nav-item">'
         if heading == 'Birds' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
@@ -915,6 +924,15 @@ def generate_navbar(active, permissions=None):
                    + 'aria-expanded="false">Users</a><div class="dropdown-menu" '\
                    + 'aria-labelledby="navbarDropdown">'
             nav += '<a class="dropdown-item" href="/userlist">Show</a>'
+            nav += '</div></li>'
+        elif heading == 'Admin':
+            nav += '<li class="nav-item dropdown active">' \
+                if heading == active else '<li class="nav-item">'
+            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
+                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
+                   + 'aria-expanded="false">Admin</a><div class="dropdown-menu" '\
+                   + 'aria-labelledby="navbarDropdown">'
+            nav += '<a class="dropdown-item" href="/tablelist">Show tables</a>'
             nav += '</div></li>'
         else:
             nav += basic
@@ -1191,6 +1209,36 @@ def user_config(uname):
                            uprops=uprops, ptable=ptable, controls=controls)
 
 
+@app.route('/tablelist')
+def table_list():
+    ''' Show list of tables
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    if "admin" not in permissions:
+        return redirect("/profile")
+    try:
+        g.c.execute("SELECT TABLE_NAME,TABLE_ROWS,DATA_LENGTH FROM INFORMATION_SCHEMA.TABLES " \
+                    + "WHERE TABLE_SCHEMA='birdsong' AND TABLE_TYPE='BASE TABLE'")
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    template = '<tr><td>%s</td>' + ''.join("<td style='text-align: center'>%s</td>")*2 + "</tr>"
+    trows = ""
+    for row in rows:
+        trows += template % (row['TABLE_NAME'], f"{row['TABLE_ROWS']:,}",
+                             humansize(row['DATA_LENGTH']))
+    return render_template('tablelist.html', urlroot=request.url_root, face=face,
+                           dataset=app.config['DATASET'], user=user,
+                           navbar=generate_navbar('Admin', permissions),
+                           tablerows=trows)
+
+
 @app.route('/logout')
 def logout():
     ''' Log out
@@ -1335,7 +1383,6 @@ def birds_in_location(location):
     ipd['key_type'] = "bird"
     ipd["location"] = location
     result["data"] = ""
-    print(ipd)
     sql, bind = get_search_sql(ipd)
     if app.config['DEBUG']:
         print(sql % bind)
@@ -1677,12 +1724,13 @@ def show_locations(): # pylint: disable=R0914,R0912,R0915
 def show_search_form():
     ''' Show the search form
     '''
-    user, face, _ = get_user_profile()
+    user, face, permissions = get_user_profile()
     if not user:
         return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
     try:
         return render_template('search.html', urlroot=request.url_root, face=face,
-                               dataset=app.config['DATASET'], navbar=generate_navbar('Search'),
+                               dataset=app.config['DATASET'],
+                               navbar=generate_navbar('Search', permissions),
                                upperselect=generate_color_pulldown("uppercolor", True),
                                lowerselect=generate_color_pulldown("lowercolor", True),
                                claim=generate_claim_pulldown("claim", True),
@@ -2512,8 +2560,15 @@ def bird_sex(bird_id, sex):
           type: string
         required: true
         description: sex
+      - in: query
+        name: tutor
+        schema:
+          type: integer
+        required: true
+        description: assign tutor
     '''
     result = initialize_result()
+    ipd = receive_payload(result)
     if not check_permission(result["rest"]["user"], ["admin", "edit", "manager"]):
         raise InvalidUsage("You don't have permission to change a bird's sex")
     result["rest"]["row_count"] = 0
@@ -2524,6 +2579,11 @@ def bird_sex(bird_id, sex):
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
+    if ipd["tutor"] and sex == "M":
+        try:
+            add_sex_trigger(bird_id)
+        except Exception as err:
+            raise InvalidUsage("Could not insert tutor", 500) from err
     g.db.commit()
     return generate_response(result)
 

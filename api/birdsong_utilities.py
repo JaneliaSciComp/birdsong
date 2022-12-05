@@ -683,6 +683,7 @@ def generate_sex_pulldown(this_id):
     for sex in ["M", "F"]:
         controls += f"<option value='{sex}'>{sex}</option>"
     controls += "</select>"
+    controls += "<input type='checkbox' id='tutor'><label>Assign nest sire as tutor</label>"
     return controls
 
 
@@ -767,13 +768,50 @@ def check_missing_parms(ipd, required):
 
 
 # *****************************************************************************
+# * Trigger functions                                                         *
+# *****************************************************************************
+def add_sex_trigger(bird_id):
+    ''' Add the nest's sire as a tutor.
+        Keyword arguments:
+          bird_id: bird ID
+        Returns:
+          None
+    '''
+    sql = "SELECT nest_id FROM bird WHERE id=%s"
+    try:
+        bind = (bird_id)
+        g.c.execute(sql, bind)
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if not row["nest_id"]:
+        return
+    sql = "SELECT sire_id FROM nest WHERE id=%s"
+    try:
+        bind = (row["nest_id"])
+        g.c.execute(sql, bind)
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if not row["sire_id"]:
+        return
+    sql = "INSERT INTO bird_tutor (bird_id,type,tutor_id) VALUES (%s,'bird',%s)"
+    try:
+        bind = (bird_id, row["sire_id"])
+        g.c.execute(sql, bind)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    return
+
+
+# *****************************************************************************
 # * Verification/validation functions                                         *
 # *****************************************************************************
 
 def build_permissions_table(calling_user, user):
     ''' Generate a user permission table.
         Keyword arguments:
-          caslling_user: calling user
+          calling_user: calling user
           user: user instance
     '''
     permissions = user["permissions"].split(",") if user["permissions"] else []
@@ -1407,6 +1445,21 @@ def create_downloadable(name, header, template, content):
         text_file.write(template % tuple(header))
         text_file.write(content)
     return fname
+
+
+def humansize(num: int, suffix='B') -> str:
+    ''' Return a human-readable storage size
+        Keyword arguments:
+          num: size
+          suffix: default suffix
+        Returns:
+          string
+    '''
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti']:
+        if abs(num) < 1024.0:
+            return f"{num:.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} P{suffix}"
 
 
 def random_string(strlen=8):
