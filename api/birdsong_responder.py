@@ -213,9 +213,8 @@ def get_bird_tutors(bird):
     html = ""
     if rows:
         header = ['Tutor', 'Date']
-        html = '''
-        <br><br>
-        <h3>Tutors</h3>
+        html = f"<br><br><h3>Tutors ({len(rows)})</h3>"
+        html += '''
         <table id="tutors" class="tablesorter standard">
         <thead>
         <tr><th>
@@ -248,9 +247,8 @@ def get_bird_events(bird):
     events = ""
     if rows:
         header = ['Date', 'Status', 'Nest', 'Location', 'User', 'Notes', 'Terminal']
-        events = '''
-        <br><br>
-        <h3>Events</h3>
+        events = f"<br><br><h3>Events ({len(rows)})</h3>"
+        events += '''
         <table id="events" class="tablesorter standard">
         <thead>
         <tr><th>
@@ -487,8 +485,8 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
     if rows:
         header = ['Name', 'Band', 'Claimed by', 'Location', 'Sex', 'Notes',
                   'Current age', 'Alive']
-        birds = "<h3>Additional birds in nest</h3>" if ttype == "nest" \
-                else "<h3>Birds in clutch</h3>"
+        birds = f"<h3>Additional birds from nest ({len(rows)})</h3>" if ttype == "nest" \
+                else f"<h3>Birds from clutch ({len(rows)})</h3>"
         birds += '''
         <table id="birds" class="tablesorter standard">
         <thead>
@@ -583,9 +581,8 @@ def get_nest_events(nest):
     events = ""
     if rows:
         header = ['Date', 'Status', 'User', 'Notes']
-        events = '''
-        <br><br>
-        <h3>Events</h3>
+        events = f"<br><br><h3>Events ({len(rows)})</h3>"
+        events += '''
         <table id="events" class="tablesorter standard">
         <thead>
         <tr><th>
