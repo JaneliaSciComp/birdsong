@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/css/bootstrap-select.css" />
+{% endblock %}
+{% block script %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.1/js/bootstrap-select.min.js"></script>
+{% endblock %}
+{% block onload %}
+onload="tableInitialize();"
+{% endblock %}
+
+{% block content %}
+  <h2>Tables</h2>
+  <table id="dbtables" class="tablesorter standard">
+  <thead>
+    <tr><th>Table</th><th>Rows</th><th>Length</th></tr>
+  </thead>
+  <tbody>
+  {{tablerows|safe}}
+  </tbody>
+  </table>
+{% endblock %}

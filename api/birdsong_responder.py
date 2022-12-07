@@ -381,7 +381,7 @@ def populate_bird_properties(bprops, bird, user, permissions, current):
     '''
     populate_bird_locations(bprops, bird)
     birdsex = bird["sex"]
-    if (not birdsex) and bird["alive"] and \
+    if (birdsex == "U" or not birdsex) and bird["alive"] and \
        (set(['admin', 'manager']).intersection(permissions) or user == bird["user"]):
         birdsex = generate_sex_pulldown(bird["id"])
     bprops.append(["Sex:", birdsex])
@@ -523,7 +523,6 @@ def get_clutch_properties(clutch):
     '''
     cprops = []
     nest = f"<a href='/nest/{clutch['nest']}'>{clutch['nest']}</a>"
-    cprops.append(["Name:", colorband(clutch["name"], clutch["name"])])
     cprops.append(["Nest:", nest])
     cprops.append(["Clutch early:", strip_time(clutch["clutch_early"])])
     cprops.append(["Clutch late:", strip_time(clutch["clutch_late"])])
@@ -541,7 +540,6 @@ def get_nest_properties(nest):
           Properties, birds, and clutches
     '''
     nprops = []
-    nprops.append(["Name:", colorband(nest["name"], nest["name"])])
     nprops.append(["Band:", nest["band"]])
     nprops.append(["Location:", nest["location"]])
     if (nest["sire"] and nest["damsel"]):
@@ -634,7 +632,7 @@ def generate_bird_event(bid):
           HTML menu
     '''
     rows = get_cv_terms('bird_status')
-    pulldown = '<select id="bevent" class="form-control col-sm-11" onchange="fix_event();">' \
+    pulldown = '<select id="bevent" class="form-control col-sm-5" onchange="fix_event();">' \
                + '<option value="">Select an event...</option>'
     for row in rows:
         pulldown += f"<option value='{row['cv_term']}'>{row['display_name']}</option>"
@@ -1332,9 +1330,12 @@ def show_bird(bname): # pylint: disable=R0911
         # Create dialogs for nest, location, and event (owner only)
         if set(['admin', 'manager']).intersection(permissions) or bird["user"] == user:
             try:
-                nestpull = generate_nest_pulldown(["fostering", "tutoring"], from_nest=nest['id'])
-                if "No nest" not in nestpull:
-                    controls += "Move bird to new nest" + nestpull
+                # PLUG
+                nestpull = generate_nest_pulldown(["breeding", "fostering", "tutoring"],
+                                                  from_nest=nest['id'])
+                #nestpull = generate_nest_pulldown(["fostering", "tutoring"], from_nest=nest['id'])
+                #if "No nest" not in nestpull:
+                #    controls += "Move bird to new nest" + nestpull
                 controls += generate_movement_pulldown(bird['id'], "bird", bird['location'])
                 controls += "Select a new tutor" + generate_tutor_pulldown(bird['id'])
                 controls += generate_bird_event(bird['id'])
@@ -1363,8 +1364,8 @@ def show_bird(bname): # pylint: disable=R0911
     return render_template('bird.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Birds', permissions),
-                           bird=colorband(bname, bname, True), bprops=bprops, sessions=sessions,
-                           tutors=tutors, events=events, controls=controls)
+                           bird=colorband(bname, bname, "Bird", True), bprops=bprops,
+                           sessions=sessions, tutors=tutors, events=events, controls=controls)
 
 
 @app.route('/birds/location/<string:location>', methods=['GET'])
@@ -1474,7 +1475,7 @@ def show_clutch(cname):
         return render_template("error.html", urlroot=request.url_root,
                                title="Not found", message=f"Clutch {cname} was not found")
     controls = ""
-    # OPTIONAL: move clutch to new nest
+    # PLUG OPTIONAL: move clutch to new nest
     #    controls += "<br>Move clutch to new nest " \
     #                + generate_nest_pulldown(["breeding", "fostering"], clutch["id"])
     auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
@@ -1483,7 +1484,8 @@ def show_clutch(cname):
     return render_template('clutch.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Clutches', permissions),
-                           clutch=cname, cprops=cprops, birds=birds, controls=controls, auth=auth)
+                           clutch=colorband(cname, cname, "Clutch", True), cprops=cprops,
+                           birds=birds, controls=controls, auth=auth)
 
 
 @app.route('/newclutch')
@@ -1565,12 +1567,13 @@ def show_nest(nname):
                                    title="SQL error", message=sql_error(err))
     nprops, birds, clutches = get_nest_properties(nest)
     auth = 1 if set(['admin', 'manager']).intersection(permissions) else 0
-    controls = "" #PLUG
+    controls = "" #PLUG Nests don't have locations, birds do
     return render_template('nest.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'],
                            navbar=generate_navbar('Nests', permissions),
-                           nest=nname, nest_id=nest['id'], nprops=nprops, birds=birds,
-                           clutches=clutches, events=get_nest_events(nest["name"]),
+                           nest=colorband(nname, nname, "Nest", True), nest_id=nest['id'],
+                           nprops=nprops, birds=birds, clutches=clutches,
+                           events=get_nest_events(nest["name"]),
                            controls=controls, auth=auth)
 
 
@@ -2625,35 +2628,11 @@ def bird_tutor(bird_id, tutor_type, tutor_id):
         raise InvalidUsage("You don't have permission to assign a bird's tutor")
     if not bird:
         raise InvalidUsage(f"{bird_id} is not a valid bird ID")
+    if bird["sex"] != "M":
+        raise InvalidUsage(f"Bird {bird_id} is not a male")
     if not bird["alive"]:
         raise InvalidUsage(f"Bird {bird_id} is dead")
-    sql = "INSERT INTO bird_tutor (bird_id,type,tutor_id) VALUES (%s,%s,%s)"
-    if tutor_type == "bird":
-        if bird_id == tutor_id:
-            raise InvalidUsage(f"Bird {tutor_id} can't tutor itself")
-        tutor = get_record(tutor_id, "bird")
-        if not tutor:
-            raise InvalidUsage(f"{tutor_id} is not a valid bird tutor ID")
-        if not tutor["alive"]:
-            raise InvalidUsage(f"Tutor {bird_id} is dead")
-    elif tutor_type == "computer":
-        try:
-            g.c.execute("SELECT * FROM cv_term_vw WHERE id=%s", (tutor_id,))
-            tutor = g.c.fetchone()
-        except Exception as err:
-            raise InvalidUsage(sql_error(err), 500) from err
-        sql = sql.replace("tutor_id", "computer_id")
-    else:
-        raise InvalidUsage(f"{tutor_type} is not a valid tutor type")
-    result["rest"]["row_count"] = 0
-    try:
-        bind = (bird_id, tutor_type, tutor["id"])
-        g.c.execute(sql, bind)
-        result["rest"]["row_count"] += g.c.rowcount
-        #log_bird_event(bird_id, status="moved", user=result['rest']['user'],
-        #               location_id=location_id)
-    except Exception as err:
-        raise InvalidUsage(sql_error(err), 500) from err
+    assign_tutor(result, bird_id, tutor_type, tutor_id)
     g.db.commit()
     return generate_response(result)
 
@@ -2994,7 +2973,49 @@ def nest_location(nest_id, location_id):
     g.db.commit()
     return generate_response(result)
 
+@app.route('/nest/tutor/<string:nest_id>',
+           methods=['OPTIONS', 'POST'])
+def nest_tutor(nest_id):
+    '''
+    Assign the nest sire as tutor for males in a nest.
+    Assign the nest sire as tutor for all males without a ruror in the nest.
+    ---
+    tags:
+      - Nest
+    parameters:
+      - in: path
+        name: nest_id
+        schema:
+          type: string
+        required: true
+        description: nest ID
+    '''
+    result = initialize_result()
+    permissions = check_permission(result["rest"]["user"])
+    if not set(['admin', 'manager']).intersection(permissions):
+        raise InvalidUsage("You don't have permission to assign a bird's tutor")
+    nest = get_record(nest_id, "nest")
+    if not nest:
+        raise InvalidUsage(f"Nest {nest_id} is not a valid nest ID")
+    if not nest["sire"]:
+        raise InvalidUsage(f"Nest {nest_id} does not have a sire")
+    sire = get_record(nest["sire"], "bird")
+    sql = "SELECT id FROM bird WHERE nest_id=%s and sex='M' AND alive=1 AND id NOT IN " \
+          + "(SELECT bird_id FROM bird_tutor) ORDER BY 1"
+    try:
+        bind = (nest_id)
+        g.c.execute(sql, bind)
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    for row in rows:
+        if row["id"] != sire["id"]:
+            assign_tutor(result, row["id"], "bird", str(sire["id"]))
+    g.db.commit()
+    return generate_response(result)
 
+
+#PLUG This is currently unused
 @app.route('/nest/nest/<string:nest_id>/<string:new_nest_id>', methods=['OPTIONS', 'POST'])
 def nest_nest(nest_id, new_nest_id):
     '''

@@ -99,7 +99,7 @@ def apply_color(text, true_color, condition=True, false_color=None, false_text=N
     return f"<span style='color:{false_color}'>{text}</span>"
 
 
-def colorband(name, text=None, big=False):
+def colorband(name, text=None, pretext=None, big=False):
     ''' Create a bands color display
         Keyword arguments:
           name: bird, clutch, or nest name
@@ -108,6 +108,8 @@ def colorband(name, text=None, big=False):
           HTML
     '''
     html = '<div class="bands">'
+    if pretext:
+        html += pretext + "&nbsp;" * 2
     bclass = "band"
     if big:
         bclass += " bigband"
@@ -121,7 +123,7 @@ def colorband(name, text=None, big=False):
         for col in cols:
             html += f"<div class='{bclass} {col.group()}'></div>"
     if text:
-        html += f"&nbsp;<div class='flexcol'>{text}</div>"
+        html += f"&nbsp;&nbsp;<div class='flexcol'>{text}</div>"
     html += '</div>'
     return html
 
@@ -536,7 +538,7 @@ def generate_movement_pulldown(this_id, item_type=None, current=None):
     rows = get_cv_terms('location')
     if this_id:
         controls = f"Move {'nest' if item_type != 'bird' else 'bird'} to new location"
-    controls += '<select id="location" class="form-control col-sm-8" onchange="select_location(' \
+    controls += '<select id="location" class="form-control col-sm-4" onchange="select_location(' \
                 + str(this_id) + ',this);"><option value="">Select a new location...</option>'
     for row in rows:
         if row["display_name"] == current:
@@ -581,7 +583,7 @@ def generate_nest_pulldown(ntype, from_nest=None, default_nest=None):
         controls += f"<option value='{row['id']}' " \
                     + f"{'selected' if default_nest==str(row['id']) else ''}>" \
                     + f"{row['location']} {row['name']}</option>"
-    controls += "</select><br><br>"
+    controls += "</select><br>"
     return controls
 
 
@@ -593,7 +595,7 @@ def generate_tutor_pulldown(bird_id):
           HTML menu
     '''
     #onchange="select_location('+ str(bird_id) + ',this)
-    controls = '<select id="tutor" class="form-control col-sm-8" onchange="select_tutor(' \
+    controls = '<select id="tutor" class="form-control col-sm-4" onchange="select_tutor(' \
                + str(bird_id) + ',this)" ><option value="">' \
                + 'Select a tutor...</option>'
     # Current tutor
@@ -1401,6 +1403,44 @@ def update_property(pid, table, name, value):
     bind = (pid, table, name, value, value)
     try:
         g.c.execute(stmt, bind)
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+
+
+def assign_tutor(result, bird_id, tutor_type, tutor_id):
+    ''' Insert/update a property
+        Keyword arguments:
+          result: result dictionary
+          bird_id: bird ID
+          tutor type: "bird" or "computer"
+          tutor_id: tutor ID
+    '''
+    sql = "INSERT INTO bird_tutor (bird_id,type,tutor_id) VALUES (%s,%s,%s)"
+    if tutor_type == "bird":
+        if bird_id == tutor_id:
+            raise InvalidUsage(f"Bird {tutor_id} can't tutor itself")
+        tutor = get_record(tutor_id, "bird")
+        if not tutor:
+            raise InvalidUsage(f"{tutor_id} is not a valid bird tutor ID")
+        if not tutor["alive"]:
+            raise InvalidUsage(f"Tutor {bird_id} is dead")
+    elif tutor_type == "computer":
+        try:
+            g.c.execute("SELECT * FROM cv_term_vw WHERE id=%s", (tutor_id,))
+            tutor = g.c.fetchone()
+        except Exception as err:
+            raise InvalidUsage(sql_error(err), 500) from err
+        sql = sql.replace("tutor_id", "computer_id")
+    else:
+        raise InvalidUsage(f"{tutor_type} is not a valid tutor type")
+    if "row_count" not in result["rest"]:
+        result["rest"]["row_count"] = 0
+    try:
+        bind = (bird_id, tutor_type, tutor["id"])
+        g.c.execute(sql, bind)
+        result["rest"]["row_count"] += g.c.rowcount
+        #log_bird_event(bird_id, status="moved", user=result['rest']['user'],
+        #               location_id=location_id)
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
 

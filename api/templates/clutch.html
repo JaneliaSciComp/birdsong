@@ -99,7 +99,7 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  <h2>Clutch {{ clutch }}</h2>
+  <h2>{{clutch|safe}}</h2>
   <table id='clutchprops' class="property">
   <tbody>
   {% for row in cprops %}

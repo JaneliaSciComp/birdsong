@@ -115,7 +115,7 @@ onload="tableInitialize();"
 {% endblock %}
 
 {% block content %}
-  <h2>Nest {{ nest }}</h2>
+  <h2>{{ nest|safe }}</h2>
   <table id='nestprops' class="property">
   <tbody>
   {% for row in nprops %}
