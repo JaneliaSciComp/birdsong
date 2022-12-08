@@ -689,6 +689,30 @@ def generate_sex_pulldown(this_id):
     return controls
 
 
+def generate_dead_or_alive(standalone=False):
+    ''' Return dead or alive checkboxes
+        Keyword arguments:
+          standalone: generate standalone control
+        Returns:
+          HTML
+    '''
+    core = '''
+      <div class="flexrow">
+        <div class="flexcol"></div>
+        <div class="flexcol">
+          <label>Alive</label>
+          <input type="checkbox" id="alive" checked onchange="get_birds();">
+          &nbsp;
+          <label>Dead</label>
+          <input type="checkbox" id="dead" onchange="get_birds();">
+        </div>
+      </div>
+    '''
+    if standalone:
+        core = f"<div style='float: left;margin-left: 15px;'>{core}</div>"
+    return core
+
+
 def generate_which_pulldown():
     ''' Return a pulldown menu to select bird claimant
         Keyword arguments:
@@ -712,18 +736,7 @@ def generate_which_pulldown():
           </select>
         </div>
       </div>
-      <div class="flexrow">
-        <div class="flexcol"></div>
-        <div class="flexcol">
-          <label>Alive</label>
-          <input type="checkbox" id="alive" checked onchange="get_birds();">
-          &nbsp;
-          <label>Dead</label>
-          <input type="checkbox" id="dead" onchange="get_birds();">
-        </div>
-      </div>
-    </div>
-    '''
+    ''' + generate_dead_or_alive() + "</div>"
 
 
 # *****************************************************************************

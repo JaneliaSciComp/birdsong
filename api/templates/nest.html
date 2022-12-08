@@ -6,6 +6,29 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script src="https://unpkg.com/gijgo@1.9.13/js/gijgo.min.js" type="text/javascript"></script>
 <script>
+function get_birds() {
+  num = 0;
+  if (!$('#alive').is(":checked") && !$('#dead').is(":checked")) {
+    $('#alive').prop('checked', true);
+  }
+  if ($('#alive').is(":checked")) {
+    num += $('.alive').length;
+    $('.alive').show();
+  }
+  else {
+    $('.alive').hide();
+  }
+  if ($('#dead').is(":checked")) {
+    num += $('.dead').length;
+    $('.dead').show();
+  }
+  else {
+    $('.dead').hide();
+  }
+  $("#tabletitle").html("Additional birds from nest (" + num + ")");
+}
+
+
 function register_bird() {
   if ($('#start').val() == "" || $('#stop').val() == "") {
     alert("Hatch dates are required");
@@ -131,6 +154,9 @@ onload="tableInitialize();"
   {{clutches|safe}}
   <br>
   {{birds|safe}}
+  <script>
+  $('.dead').hide();
+  </script>
   {{events|safe}}
 
   <!-- PLUG

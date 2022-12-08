@@ -230,15 +230,15 @@ onload="tableInitialize();"
   <h2>{{ bird|safe }}</h2>
   <div class="flexcontainertop">
     <div class="flexitem">
-      <table id='birdprops' class="property">
+      <table id='birdprops' class="property" width="700px">
       <tbody>
       {% for row in bprops %}
-        <tr><td>{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
+        <tr><td style="width:120px">{{ row[0] }}</td><td>{{ row[1]|safe }}</td></tr>
       {% endfor %}
       </tbody>
       </table>
     </div>
-    <div class="flexitem" style="margin-left: 100px">
+    <div class="flexitem" style="margin-left: 50px">
     </div>
     <div class="flexitem">
       {{sessions|safe}}

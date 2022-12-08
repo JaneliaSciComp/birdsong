@@ -478,15 +478,20 @@ def get_birds_in_clutch_or_nest(rec, dnd, ttype):
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
     rows = []
+    alive = 0
     for row in irows:
         if row["name"] in dnd:
             continue
+        if row["alive"]:
+            alive += 1
         rows.append(row)
     if rows:
         header = ['Name', 'Band', 'Claimed by', 'Location', 'Sex', 'Notes',
                   'Current age', 'Alive']
-        birds = f"<h3>Additional birds from nest ({len(rows)})</h3>" if ttype == "nest" \
-                else f"<h3>Birds from clutch ({len(rows)})</h3>"
+        birds = f"<h3><div id='tabletitle'>Additional birds from nest ({alive})</div></h3>" \
+                if ttype == "nest" else f"<h3>Birds from clutch ({len(rows)})</h3>"
+        if ttype == "nest":
+            birds += generate_dead_or_alive(True) + "<br>"
         birds += '''
         <table id="birds" class="tablesorter standard">
         <thead>
