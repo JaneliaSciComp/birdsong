@@ -238,13 +238,17 @@ onload="tableInitialize();"
       </tbody>
       </table>
     </div>
-    <div class="flexitem" style="margin-left: 200px">
+    <div class="flexitem" style="margin-left: 100px">
     </div>
     <div class="flexitem">
       {{sessions|safe}}
     </div>
   </div>
+  <br>
+  <button class="btn btn-outline-warning btn-sm" onclick="$('#controls').toggle();">Show/hide controls</button>
+  <div id="controls" style="display: none;">
   {{controls|safe}}
+  </div>
   {{tutors|safe}}
   {{events|safe}}
 {% endblock %}

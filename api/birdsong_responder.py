@@ -1324,6 +1324,12 @@ def show_bird(bname): # pylint: disable=R0911
     controls = '<br>'
     # Dialogs for live birds
     if bird["alive"] and set(['admin', 'edit', 'manager']).intersection(permissions):
+        # Claim a live bird
+        if not bird["user"]:
+            controls += '''
+            <button type="button" class="btn btn-success btn-sm" onclick='update_bird(%s,"claim");'>Claim bird</button><br>
+            '''
+            controls = controls % (bird['id'])
         # Create dialogs for nest, location, and event (owner only)
         if set(['admin', 'manager']).intersection(permissions) or bird["user"] == user:
             try:
@@ -1339,12 +1345,6 @@ def show_bird(bname): # pylint: disable=R0911
             except Exception as err:
                 return render_template("error.html", urlroot=request.url_root,
                                        title="SQL error", message=sql_error(err))
-        # Claim a live bird
-        elif not bird["user"]:
-            controls += '''
-            <button type="button" class="btn btn-success btn-sm" onclick='update_bird(%s,"claim");'>Claim bird</button>
-            '''
-            controls = controls % (bird['id'])
     # Allow admins and managers to resurrect a bird
     if not(bird["alive"]) and set(['admin', 'manager']).intersection(permissions):
         controls += '''
