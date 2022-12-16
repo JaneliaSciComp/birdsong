@@ -49,7 +49,7 @@ class CustomJSONEncoder(JSONEncoder):
         return JSONEncoder.default(self, o)
 
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
@@ -1250,7 +1250,6 @@ def fulldbstats():
     try:
         g.c.execute("SHOW TABLE STATUS LIKE 'bird'")
         free = g.c.fetchone()
-        print(free)
         g.c.execute("SELECT SUM(data_length + index_length) AS size FROM " \
                     + "information_schema.tables WHERE table_schema='birdsong'")
         size = g.c.fetchone()
