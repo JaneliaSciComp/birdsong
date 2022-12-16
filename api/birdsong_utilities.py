@@ -21,6 +21,10 @@ KEY_TYPE_IDS = {}
 READ = {
     'BSUMMARY': "SELECT * FROM bird_vw ORDER BY name DESC",
     'CSUMMARY': "SELECT * FROM clutch_vw ORDER BY name DESC",
+    'COMPSUMMARY': "SELECT comparison,relationship,COUNT(1) AS cnt,AVG(value) AS mean FROM "
+                   + "bird_comparison_vw GROUP BY 1,2",
+    'COMPARISON': "SELECT bird1,bird2,relationship,comparison,value FROM bird_comparison_vw "
+                  + "WHERE bird1=%s OR bird2=%s ORDER BY 1,2",
     'INUSE': "SELECT c.name,display_name,COUNT(b.id) AS cnt FROM cv_term c "
              + "LEFT OUTER JOIN bird b ON (b.location_id=c.id) "
              + "WHERE cv_id=getCvId('location','') GROUP BY 1,2 HAVING cnt>0",

@@ -34,15 +34,18 @@ DO_NOT_INSERT = {}
 MARK_AS_DEAD = {}
 # General
 COUNT = {"birds": 0, "birds_duplicate": 0, "birds_invalid": 0, "birds_parent": 0,
-         "birds_ref": 0, "birds_write": 0}
+         "birds_ref": 0, "birds_write": 0, "nests": 0, "nests_no_parents": 0,
+         "nests_one_parent": 0, "nests_write": 0}
 TIMER = {}
 ELAPSED = []
 # Database
 CONN = {}
 CURSOR = {}
 READ = {"BIRD": "SELECT * FROM bird WHERE name=%s",
-        "CHILDREN": "SELECT subject_id,object_id,create_date FROM bird_relationship WHERE "
-                    + "type_id=getCvTermId('bird_relationship','sired_by',NULL)",
+        "SIRED": "SELECT subject_id,object_id,create_date FROM bird_relationship WHERE "
+                 + "type_id=getCvTermId('bird_relationship','sired_by',NULL)",
+        "BORNE": "SELECT subject_id,object_id,create_date FROM bird_relationship WHERE "
+                 + "type_id=getCvTermId('bird_relationship','borne_by',NULL)",
         "SIBLINGS": "SELECT subject_id FROM bird_relationship WHERE "
                     + "type_id=getCvTermId('bird_relationship','sired_by',NULL) "
                     + "AND object_id=%s",
@@ -262,17 +265,32 @@ def relate_birds(bird_id, sire_id, damsel_id, hdate):
 
 
 def add_sibling_relationships():
+    """ Add relationships for siblings and half siblings.
+        Keyword arguments:
+          None
+        Returns:
+          None
+    """
     try:
-        CURSOR['bird'].execute(READ["CHILDREN"])
-        children = CURSOR['bird'].fetchall()
+        CURSOR['bird'].execute(READ["BORNE"])
+        borne_by = CURSOR['bird'].fetchall()
     except Exception as err:
         terminate_program(sql_error(err))
-    for child in tqdm(children, desc="Birds: Add sibling relationships"):
+    damsel = {}
+    for child in borne_by:
+        damsel[child['subject_id']] = child['object_id']
+    try:
+        CURSOR['bird'].execute(READ["SIRED"])
+        sired_by = CURSOR['bird'].fetchall()
+    except Exception as err:
+        terminate_program(sql_error(err))
+    for child in tqdm(sired_by, desc="Birds: Add sibling relationships"):
         bird_id = child['subject_id']
-        parent_id = child['object_id']
+        sire_id = child['object_id']
+        damsel_id = damsel[bird_id]
         hdate = child['create_date']
         try:
-            CURSOR['bird'].execute(READ["SIBLINGS"], (parent_id,))
+            CURSOR['bird'].execute(READ["SIBLINGS"], (sire_id,))
             siblings = CURSOR['bird'].fetchall()
         except Exception as err:
             terminate_program(sql_error(err))
@@ -280,8 +298,11 @@ def add_sibling_relationships():
             sib_id = sib['subject_id']
             if bird_id == sib_id:
                 continue
+            relationship = "sibling_of" if damsel[bird_id] == damsel_id else "half_sibling_of"
+            if relationship == "half_sibling_of":
+                print("Half")
             try:
-                CURSOR['bird'].execute(WRITE["RELATE"], ("sibling_of", bird_id, sib_id, hdate))
+                CURSOR['bird'].execute(WRITE["RELATE"], (relationship, bird_id, sib_id, hdate))
             except Exception as err:
                 terminate_program(sql_error(err))
 
@@ -489,9 +510,12 @@ def process_birds_nest(bird):
     nest = {}
     remove_digits = str.maketrans('', '', digits)
     for row in tqdm(rows, desc="Nests"):
+        COUNT["nests"] += 1
         if not row['sire_id'] and not row['dam_id']:
+            COUNT["nests_no_parents"] += 1
             continue
         if row['sire_id'] not in bird or row['dam_id'] not in bird:
+            COUNT["nests_one_parent"] += 1
             continue
         nest[row['uuid']] = dict(row)
         hdate = bird[row['sire_id']]['hatch_date'].replace("-", "")
@@ -508,6 +532,7 @@ def process_birds_nest(bird):
             CURSOR['bird'].execute(WRITE['NEST'], bind)
             nest[row['uuid']]['nest_id'] = CURSOR['bird'].lastrowid
             NESTLOC[nest[row['uuid']]['nest_id']] = location
+            COUNT["nests_write"] += 1
         except Exception as err:
             terminate_program(sql_error(err))
     for bid in tqdm(bird, desc="Assign birds to nests"):
@@ -622,6 +647,10 @@ def wrapup():
     print("Birds with bad parent reference: "
           + f"{COUNT['birds_ref']} ({COUNT['birds_ref']/birds1*100:.2f}%)")
     print("Birds written to MySQL:          " + f"{COUNT['birds_write']}")
+    print("Nests read from SQLite:          " + f"{COUNT['nests']}")
+    print("Nests with no sire or damsel:    " + f"{COUNT['nests_no_parents']}")
+    print("Nests with one parent:           " + f"{COUNT['nests_one_parent']}")
+    print("Birds written to MySQL:          " + f"{COUNT['nests_write']}")
     for row in ELAPSED:
         print(row)
 

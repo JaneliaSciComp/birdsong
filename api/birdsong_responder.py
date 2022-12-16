@@ -56,6 +56,7 @@ app.config.from_pyfile("config.cfg")
 # Override Flask's usual behavior of sorting keys (interferes with prioritization)
 app.config["JSON_SORT_KEYS"] = False
 CORS(app, supports_credentials=True)
+
 def define_views():
     ''' Populate app.config['VIEWS']
     '''
@@ -64,6 +65,7 @@ def define_views():
         table = list(row.values())[0]
         if table.endswith("_vw"):
             app.config["VIEWS"].append(table)
+
 try:
     CONN = pymysql.connect(host=app.config["MYSQL_DATABASE_HOST"],
                            user=app.config["MYSQL_DATABASE_USER"],
@@ -274,9 +276,10 @@ def get_bird_sessions(bird):
           bird: bird record
         Returns: HTML
     '''
+    bname = bird["name"]
     sessions = ""
     try:
-        g.c.execute("SELECT cv,type FROM session_vw WHERE bird=%s ORDER BY 1,2", bird["name"])
+        g.c.execute("SELECT cv,type FROM session_vw WHERE bird=%s ORDER BY 1,2", bname)
         rows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -288,10 +291,12 @@ def get_bird_sessions(bird):
     <tbody>
     """
     try:
-        g.c.execute("SELECT * FROM score_vw WHERE bird=%s ORDER BY cv,type", bird["name"])
+        g.c.execute("SELECT * FROM score_vw WHERE bird=%s ORDER BY cv,type", bname)
         rows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
+    if not rows:
+        return ""
     head = False
     for row in rows:
         if not head:
@@ -305,7 +310,7 @@ def get_bird_sessions(bird):
     """
     try:
         g.c.execute("SELECT state,COUNT(1) AS count FROM state_vw WHERE "
-                    + "bird=%s GROUP BY 1 ORDER BY 2 DESC", bird["name"])
+                    + "bird=%s GROUP BY 1 ORDER BY 2 DESC", bname)
         rows = g.c.fetchall()
     except Exception as err:
         raise InvalidUsage(sql_error(err), 500) from err
@@ -316,6 +321,18 @@ def get_bird_sessions(bird):
     for row in rows:
         sessions += f"<td>{row['count']}</td>"
     sessions += "</tr></tbody></table>"
+    # Comparisons
+    try:
+        g.c.execute("SELECT COUNT(1) AS cnt FROM bird_comparison_vw WHERE "
+                    + "bird1=%s", bname)
+        row = g.c.fetchone()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    if row and row["cnt"]:
+        sessions += '<br><button type="button" ' \
+                    + 'class="btn btn-outline-info and-all-other-classes">' \
+                    + f"<a href='/comparison/{bname}' " \
+                    + "style='color:inherit'>View comparisons</a></button>"
     return sessions
 
 
@@ -881,7 +898,7 @@ def generate_navbar(active, permissions=None):
       <div class="collapse navbar-collapse" id="navbarSupportedContent">
         <ul class="navbar-nav mr-auto">
     '''
-    headings = ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Users']
+    headings = ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Comparisons', 'Users']
     if "admin" in permissions:
         headings.append("Admin")
     for heading in headings:
@@ -916,6 +933,15 @@ def generate_navbar(active, permissions=None):
             nav += '<a class="dropdown-item" href="/nestlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newnest">Add</a>'
             nav += '</div></li>'
+        elif heading == 'Comparisons':
+            nav += '<li class="nav-item dropdown active">' \
+                if heading == active else '<li class="nav-item">'
+            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
+                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
+                   + 'aria-expanded="false">Comparisons</a><div class="dropdown-menu" '\
+                   + 'aria-labelledby="navbarDropdown">'
+            nav += '<a class="dropdown-item" href="/comparisons">Show</a>'
+            nav += '</div></li>'
         elif heading == 'Users':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
@@ -932,7 +958,7 @@ def generate_navbar(active, permissions=None):
                    + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
                    + 'aria-expanded="false">Admin</a><div class="dropdown-menu" '\
                    + 'aria-labelledby="navbarDropdown">'
-            nav += '<a class="dropdown-item" href="/tablelist">Show tables</a>'
+            nav += '<a class="dropdown-item" href="/fulldbstats">DB statistics</a>'
             nav += '</div></li>'
         else:
             nav += basic
@@ -1209,9 +1235,9 @@ def user_config(uname):
                            uprops=uprops, ptable=ptable, controls=controls)
 
 
-@app.route('/tablelist')
-def table_list():
-    ''' Show list of tables
+@app.route('/fulldbstats')
+def fulldbstats():
+    ''' Show database statistics
     '''
     user, face, permissions = get_user_profile()
     if not user:
@@ -1222,6 +1248,16 @@ def table_list():
     if "admin" not in permissions:
         return redirect("/profile")
     try:
+        g.c.execute("SHOW TABLE STATUS LIKE 'bird'")
+        free = g.c.fetchone()
+        print(free)
+        g.c.execute("SELECT SUM(data_length + index_length) AS size FROM " \
+                    + "information_schema.tables WHERE table_schema='birdsong'")
+        size = g.c.fetchone()
+        dbspace = free["Data_free"] + size["size"]
+        msg = f"Used: {humansize(float(size['size']))} ({size['size']/dbspace*100:.2f}%)<br>" \
+              + f"Free: {humansize(float(free['Data_free']))} " \
+              + f"({free['Data_free']/dbspace*100:.2f}%)"
         g.c.execute("SELECT TABLE_NAME,TABLE_ROWS,DATA_LENGTH FROM INFORMATION_SCHEMA.TABLES " \
                     + "WHERE TABLE_SCHEMA='birdsong' AND TABLE_TYPE='BASE TABLE'")
         rows = g.c.fetchall()
@@ -1233,10 +1269,10 @@ def table_list():
     for row in rows:
         trows += template % (row['TABLE_NAME'], f"{row['TABLE_ROWS']:,}",
                              humansize(row['DATA_LENGTH']))
-    return render_template('tablelist.html', urlroot=request.url_root, face=face,
+    return render_template('dbstats.html', urlroot=request.url_root, face=face,
                            dataset=app.config['DATASET'], user=user,
                            navbar=generate_navbar('Admin', permissions),
-                           tablerows=trows)
+                           size=msg, tablerows=trows)
 
 
 @app.route('/logout')
@@ -1642,89 +1678,6 @@ def new_nest():
                                title="SQL error", message=sql_error(err))
 
 
-@app.route('/locationlist', methods=['GET', 'POST'])
-def show_locations(): # pylint: disable=R0914,R0912,R0915
-    ''' Locations
-    '''
-    user, face, permissions = get_user_profile()
-    if not user:
-        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
-    if not validate_user(user):
-        return render_template("error.html", urlroot=request.url_root,
-                               title="Unknown user", message=f"User {user} is not registered")
-    try:
-        g.c.execute(READ['LSUMMARY'])
-        rows = g.c.fetchall()
-    except Exception as err:
-        return render_template("error.html", urlroot=request.url_root,
-                               title="SQL error", message=sql_error(err))
-    locrows = ''
-    fheader = ['Location', 'Description', 'Number of birds', 'Number of nests']
-    header = ['Location', 'Description', 'Number of birds', 'Number of nests']
-    if rows:
-        if set(['admin', 'manager']).intersection(permissions):
-            header.append("Delete")
-            template = '<tr class="open">' + ''.join("<td>%s</td>")*2 \
-                       + ''.join('<td style="text-align: center">%s</td>'*3) + '</tr>'
-        else:
-            template = '<tr class="open">' + ''.join("<td>%s</td>")*(len(header)-1) \
-                       + '<td style="text-align: center">%s</td></tr>'
-        lochead = "<tr>" + "".join([f"<th>{itm}</th>" for itm in header]) + "</tr>"
-        fileoutput = ''
-        ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
-        for row in rows:
-            fileoutput += ftemplate % (row['display_name'], row['definition'],
-                                       row['cnt'], row['ncnt'])
-            if row["cnt"]:
-                row["cnt"] = f"<a href='/birds/location/{row['display_name']}'{row['cnt']}</a>"
-            if row["ncnt"]:
-                row["ncnt"] = f"<a href='/nests/location/{row['display_name']}'>{row['ncnt']}</a>"
-            delcol = ""
-            if row['cnt'] == 0 and row['ncnt'] == 0:
-                delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
-                         + ');"><i class="fa-solid fa-trash-can fa-lg" style="color:red"></i></a>'
-            if set(['admin', 'manager']).intersection(permissions):
-                locrows += template % (row['display_name'], row['definition'],
-                                       row['cnt'], row['ncnt'], delcol)
-            else:
-                locrows += template % (row['display_name'], row['definition'], row['cnt'],
-                                       row['ncnt'])
-        downloadable = create_downloadable('locations', fheader, ftemplate, fileoutput)
-        locations = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
-                    + 'role="button">Download table</a>'
-    else:
-        locations = "There are no locations"
-    if request.method == 'POST':
-        return {"locations": locations}
-    addloc = ''
-    if set(['admin', 'edit', 'manager']).intersection(permissions):
-        addloc = '''
-        <br>
-        <h3>Add a location</h3>
-        <div class="form-group">
-          <div class="col-md-5">
-            <label for="Input1">Location</label>
-            <input type="text" size="100" class="form-control" id="display_name" aria-describedby="itemHelp" placeholder="Enter location name">
-            <small id="itemHelp" class="form-text text-muted">Enter the location name.</small>
-          </div>
-        </div>
-        <div class="form-group">
-          <div class="col-md-5">
-            <label for="Input2">Description</label>
-            <input type="text" class="form-control" id="definition" aria-describedby="itemHelp" placeholder="Enter description (optional)">
-            <small id="itemHelp" class="form-text text-muted">Enter the description.</small>
-          </div>
-        </div>
-        <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="add_location();" href="#">Add location</button>
-        '''
-    response = make_response(render_template('locationlist.html', urlroot=request.url_root,
-                                             face=face, dataset=app.config['DATASET'],
-                                             navbar=generate_navbar('Locations', permissions),
-                                             locations=locations, locationhead=lochead,
-                                             locationrows=locrows, addlocation=addloc))
-    return response
-
-
 @app.route('/searchlist')
 def show_search_form():
     ''' Show the search form
@@ -1822,6 +1775,157 @@ def run_search():
     return generate_response(result)
 
 
+@app.route('/locationlist', methods=['GET', 'POST'])
+def show_locations(): # pylint: disable=R0914,R0912,R0915
+    ''' Locations
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    try:
+        g.c.execute(READ['LSUMMARY'])
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    locrows = ''
+    fheader = ['Location', 'Description', 'Number of birds', 'Number of nests']
+    header = ['Location', 'Description', 'Number of birds', 'Number of nests']
+    if rows:
+        if set(['admin', 'manager']).intersection(permissions):
+            header.append("Delete")
+            template = '<tr class="open">' + ''.join("<td>%s</td>")*2 \
+                       + ''.join('<td style="text-align: center">%s</td>'*3) + '</tr>'
+        else:
+            template = '<tr class="open">' + ''.join("<td>%s</td>")*(len(header)-1) \
+                       + '<td style="text-align: center">%s</td></tr>'
+        lochead = "<tr>" + "".join([f"<th>{itm}</th>" for itm in header]) + "</tr>"
+        fileoutput = ''
+        ftemplate = "\t".join(["%s"]*len(fheader)) + "\n"
+        for row in rows:
+            fileoutput += ftemplate % (row['display_name'], row['definition'],
+                                       row['cnt'], row['ncnt'])
+            if row["cnt"]:
+                row["cnt"] = f"<a href='/birds/location/{row['display_name']}'{row['cnt']}</a>"
+            if row["ncnt"]:
+                row["ncnt"] = f"<a href='/nests/location/{row['display_name']}'>{row['ncnt']}</a>"
+            delcol = ""
+            if row['cnt'] == 0 and row['ncnt'] == 0:
+                delcol = '<a href="#" onclick="delete_location(' + str(row['id']) \
+                         + ');"><i class="fa-solid fa-trash-can fa-lg" style="color:red"></i></a>'
+            if set(['admin', 'manager']).intersection(permissions):
+                locrows += template % (row['display_name'], row['definition'],
+                                       row['cnt'], row['ncnt'], delcol)
+            else:
+                locrows += template % (row['display_name'], row['definition'], row['cnt'],
+                                       row['ncnt'])
+        downloadable = create_downloadable('locations', fheader, ftemplate, fileoutput)
+        locations = f'<a class="btn btn-outline-info btn-sm" href="/download/{downloadable}" ' \
+                    + 'role="button">Download table</a>'
+    else:
+        locations = "There are no locations"
+    if request.method == 'POST':
+        return {"locations": locations}
+    addloc = ''
+    if set(['admin', 'edit', 'manager']).intersection(permissions):
+        addloc = '''
+        <br>
+        <h3>Add a location</h3>
+        <div class="form-group">
+          <div class="col-md-5">
+            <label for="Input1">Location</label>
+            <input type="text" size="100" class="form-control" id="display_name" aria-describedby="itemHelp" placeholder="Enter location name">
+            <small id="itemHelp" class="form-text text-muted">Enter the location name.</small>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="col-md-5">
+            <label for="Input2">Description</label>
+            <input type="text" class="form-control" id="definition" aria-describedby="itemHelp" placeholder="Enter description (optional)">
+            <small id="itemHelp" class="form-text text-muted">Enter the description.</small>
+          </div>
+        </div>
+        <button type="submit" id="sb" class="btn btn-primary btn-sm" onclick="add_location();" href="#">Add location</button>
+        '''
+    response = make_response(render_template('locationlist.html', urlroot=request.url_root,
+                                             face=face, dataset=app.config['DATASET'],
+                                             navbar=generate_navbar('Locations', permissions),
+                                             locations=locations, locationhead=lochead,
+                                             locationrows=locrows, addlocation=addloc))
+    return response
+
+
+@app.route('/comparisons', methods=['GET'])
+def show_comparisons(): # pylint: disable=R0914,R0912,R0915
+    ''' Comparisons
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    try:
+        g.c.execute(READ['COMPSUMMARY'])
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    header = ['Comparison', 'Relationship', '# comparisons', 'Mean difference']
+    template = '<tr>' + ''.join("<th style='text-align: center'>%s</th>")*(len(header)) \
+               + '</tr>'
+    comprows = "<thead>" + (template % tuple(header)) + "</thead><tbody>"
+    template = template.replace("th", "td")
+    for row in rows:
+        comprows += template % (row['comparison'], row['relationship'], row['cnt'],
+                                f"{row['mean']:.3}")
+    comprows += "</tbody>"
+    response = make_response(render_template('comparison.html', urlroot=request.url_root,
+                                             face=face, dataset=app.config['DATASET'],
+                                             title="Comparison summary",
+                                             navbar=generate_navbar('Comparisons', permissions),
+                                             comprows=comprows))
+    return response
+
+
+@app.route('/comparison/<string:bird>')
+def show_comparison(bird):
+    ''' Show comparisons for a bird
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    try:
+        g.c.execute(READ['COMPARISON'], (bird, bird))
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    header = ['Bird', 'Relationship', 'Comparison', 'Value']
+    template = '<tr>' + ''.join("<th style='text-align: center'>%s</th>")*(len(header)) \
+               + '</tr>'
+    comprows = "<thead>" + (template % tuple(header)) + "</thead><tbody>"
+    template = template.replace("th", "td")
+    for row in rows:
+        cbird = row["bird1"] if row["bird2"] == bird else row["bird2"]
+        cbird = f"<a href='/bird/{cbird}'>{cbird}</a>"
+        comprows += template % (cbird, row['relationship'], row['comparison'],
+                                f"{row['value']}")
+    comprows += "</tbody>"
+    response = make_response(render_template('comparison.html', urlroot=request.url_root,
+                                             face=face, dataset=app.config['DATASET'],
+                                             navbar=generate_navbar('Comparisons', permissions),
+                                             title=f"Comparisons for {bird}",
+                                             comprows=comprows))
+    return response
+
+
 # *****************************************************************************
 # * Endpoints                                                                 *
 # *****************************************************************************
@@ -1868,7 +1972,7 @@ def stats():
     result = initialize_result()
     db_connection = True
     try:
-        g.db.ping(reconnect=False)
+        g.db.ping()
     except Exception as err:
         temp = "{2}: An exception of type {0} occurred. Arguments:\n{1!r}"
         mess = temp.format(type(err).__name__, err.args, inspect.stack()[0][3])

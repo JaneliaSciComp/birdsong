@@ -1,7 +1,7 @@
 ''' Process a phenotype/genotype file and persist data in the database
-    The input file (or picked version of it) has multiple colums that identify ther bird,
-    phenotype measurement, and genetic marker data. Each row is a set of measurements for
-    one bird. Requiremed columns are:
+    The input file (or picked version of it) has multiple colums that
+    identify ther bird, phenotype measurement, and genetic marker data.
+    Each row is a set of measurements for one bird. Required columns are:
       1) Column name stored in BIRD_COL (typically "IND_ID")
       2) SEX ("M" or "F")
       3) Phenotype name (stored in ARG.PHENOTYPE)
@@ -9,15 +9,20 @@
     Example:
       IND_ID  SEX     MEDIAN_TEMPO    2       3       4       5
       1       M       6.69460301396   C/G     C/C     ./.     C/C
+    Tables updated are:
+      bird
+      score
+      session
+      state
 '''
 
 import argparse
+import hashlib
 import os
 import re
 import socket
 import sys
 import colorlog
-import inquirer
 import MySQLdb
 import pandas as pd
 import requests
@@ -30,6 +35,9 @@ CONFIG = {'config': {'url': os.environ.get('CONFIG_SERVER_URL')}}
 BAND = {}
 BIRD = {}
 COLOR = {}
+PHENMAP = {} # MD5 hash: phenotype value
+PHENCOL = {}
+PHENVAL = {} # {IND_ID: phenotype value}
 # General
 BIRD_COL = "IND_ID" # Column name for bird
 BDAY_COL = "IND_BD" # Column name for bird birth date
@@ -37,8 +45,10 @@ SEX_COL = "SEX" # Column name for bird sex
 NEST_COL = "FAM_ID" # Column name for nest
 SIRE_COL = "FATHER_ID"
 DAMSEL_COL = "MOTHER_ID"
+LIMIT = 5 # Number of allele mismatches to allow
 COUNT = {"missing": 0, "phenotype": 0, "processed": 0, "read": 0, "score": 0,
-         "session": 0, "sex": 0, "state": 0, "birds": 0}
+         "session": 0, "sex": 0, "state": 0, "birds": 0,
+         "seq_close": 0, "seq_match": 0, "seq_mismatch": 0}
 # Database
 CONN = {}
 CURSOR = {}
@@ -156,6 +166,8 @@ def initialize_program():
         COLOR[row['display_name']] = row['cv_term']
     COLOR['g'] = 'green'
     COLOR['yw'] = 'yellow'
+    if ARG.WRITE:
+        ARG.SKIP = False
 
 
 def get_terms():
@@ -178,8 +190,49 @@ def get_terms():
     return term
 
 
+def process_phenotype_file():
+    LOGGER.info("Reading %s", ARG.PHENFILE)
+    if ARG.PHENFILE.endswith(".pk") or ARG.PHENFILE.endswith(".pkl"):
+        dfrp = pd.read_pickle(ARG.PHENFILE)
+    else:
+        dfrp = pd.read_csv(ARG.PHENFILE, header=0, delimiter="\t")
+        newname = ARG.PHENFILE.replace("." + ARG.PHENFILE.split(".")[-1], ".pkl")
+        if newname == ARG.PHENFILE:
+            newname += ".pkl"
+        LOGGER.info("Saving phenotype dataframe to %s", newname)
+        dfrp.to_pickle(newname)
+    name = list(dfrp.columns)
+    first_marker = name.index(ARG.PHENOTYPE.upper()) + 1
+    LOGGER.info("Dimensions: %dx%d", dfrp.shape[0], dfrp.shape[1])
+    LOGGER.info("Birds: %d", len(dfrp[BIRD_COL].unique()))
+    LOGGER.info("Markers: %d", (len(name) - first_marker))
+    for _, row in tqdm(dfrp.iterrows(), total=dfrp.shape[0], desc="Loading phenotypes"):
+        PHENCOL[row[BIRD_COL]] = {}
+        PHENVAL[row[BIRD_COL]] = row[ARG.PHENOTYPE.upper()]
+        colrange = range(first_marker, len(row))
+        idstr = ""
+        for col in colrange:
+            if name[col] in ('23458', '24704', '26835'): #PLUG
+                continue
+            PHENCOL[row[BIRD_COL]][name[col]] = True
+            if len(row[name[col]]) != 3:
+                #LOGGER.warning(f"Invalid allele state {row[name[col]]}")
+                if row[name[col]][-1:] == "/":
+                    row[name[col]] += "."
+                else:
+                    row[name[col]] = "." + row[name[col]]
+            idstr += row[name[col]]
+            PHENCOL[row[BIRD_COL]][name[col]] = row[name[col]] #PLUG
+        key = hashlib.md5(idstr.encode()).hexdigest()
+        #print(idstr[0:30], idstr[-30:], len(colrange)) #PLUG
+        if key in PHENMAP:
+            terminate_program(f"Hash key collision for bird ID {row[BIRD_COL]}")
+        PHENMAP[key] = row[ARG.PHENOTYPE.upper()]
+    LOGGER.info("Markers in phenotype file: %d", len(PHENCOL[0]))
+
+
 def convert_band(iband):
-    """ Given an abbrefiated color band, convert the colors to the full name
+    """ Given an abbreviated color band, convert the colors to the full name
         Keyword arguments:
           iband: input band
         Returns:
@@ -214,17 +267,16 @@ def valid_bird(row):
     if iband not in BAND:
         COUNT["missing"] += 1
         LOGGER.error("Band %s is not in the database", iband)
-        return False
+        return None
     field = row[BDAY_COL].split("/")
     fdate = "".join([field[2], field[0], field[1]])
     name = "_".join([fdate, band])
     if name not in BIRD:
         COUNT["missing"] += 1
         LOGGER.error("Bird %s is not in the database", name)
-        return False
+        return None
     row[BIRD_COL] = bid = BIRD[name]
     try:
-        LOGGER.debug(READ["BIRD"], bid)
         CURSOR['bird'].execute(READ["BIRD"] % (bid,))
         bird = CURSOR['bird'].fetchone()
     except Exception as err:
@@ -232,15 +284,15 @@ def valid_bird(row):
     if not bird:
         COUNT["missing"] += 1
         LOGGER.error("Bird ID %s is unknown", bid)
-        return False
+        return None
     if row["SEX"] != bird["sex"]:
         COUNT["sex"] += 1
         LOGGER.warning("Sex mismatch for %s (%s != %s)", bird['name'], row["SEX"], bird["sex"])
-        return False
-    return True
+        return None
+    return name
 
 
-def process_phenotype(row, term):
+def process_phenotype(row, term, val=None):
     """ Process a single phenotype for one bird. This will insert one session and one score.
         Keyword arguments:
           row: row from input file
@@ -252,20 +304,24 @@ def process_phenotype(row, term):
     bind = (bid, term["phenotype"][ARG.PHENOTYPE.lower()], bid, 2)
     LOGGER.debug(WRITE["SESSION"], bind)
     try:
-        CURSOR['bird'].execute(WRITE["SESSION"] % bind)
+        CURSOR['bird'].execute(WRITE["SESSION"], bind)
         session_id = CURSOR['bird'].lastrowid
         COUNT["session"] += 1
     except Exception as err:
         sql_error(err)
-    bind = (session_id, term["phenotype"][ARG.PHENOTYPE.lower()], row[ARG.PHENOTYPE.upper()])
+    if not val:
+        val = row[ARG.PHENOTYPE.upper()]
+    bind = (session_id, term["phenotype"][ARG.PHENOTYPE.lower()], val)
     good_val = False
-    val = row[ARG.PHENOTYPE.upper()]
     try:
         float(val)
         good_val = True
     except ValueError:
         LOGGER.warning("Invalid %s (%s) for bird ID %s", ARG.PHENOTYPE.upper(), val, bid)
         COUNT["phenotype"] += 1
+    except Exception as err:
+        LOGGER.warning("Invalid %s (%s) for bird ID %s", ARG.PHENOTYPE.upper(), val, bid)
+        sys.exit(-1)
     if good_val:
         LOGGER.debug(WRITE["SCORE"], bind)
         try:
@@ -275,8 +331,42 @@ def process_phenotype(row, term):
             sql_error(err)
 
 
+def compare_calls(row, name, colrange):
+    idstr = ""
+    for col in colrange:
+        idstr += row[name[col]]
+    #LOGGER.info("%s %s %s", idstr[0:30], idstr[-30:], len(colrange))
+    for comp in PHENCOL:
+        message = []
+        bdcol = {}
+        for col in colrange:
+            bdcol[name[col]] = True
+            if row[name[col]] != PHENCOL[comp][name[col]]:
+                message.append(f"Marker {name[col]} mismatch " \
+                               + f"{row[name[col]]} != {PHENCOL[comp][name[col]]}")
+                if len(message) >= LIMIT:
+                    break
+        if len(message) >= LIMIT:
+            continue
+        if not message:
+            COUNT["seq_match"] += 1
+            return PHENVAL[comp]
+        for key in bdcol:
+            if key not in PHENCOL[comp]:
+                LOGGER.error("%s is in bd but not in Genetic", key)
+        for key in PHENCOL[comp]:
+            if key not in bdcol:
+                LOGGER.error("%s is in Genetic but not in bd", key)
+        LOGGER.info("\n".join(message))
+        if len(message) < LIMIT: # Permissive
+            COUNT["seq_close"] += 1
+            return PHENVAL[comp]
+    COUNT["seq_mismatch" if len(message) > LIMIT else "seq_close"] += 1
+    return None
+
+
 def process_genotype(row, term, name, first_marker):
-    """ Process a single phenotype for one bird. This will insert one session and one state.
+    """ Process a single genotype for one bird. This will insert one session and one state.
         Keyword arguments:
           row: row from input file
           term: term dictionary
@@ -286,22 +376,59 @@ def process_genotype(row, term, name, first_marker):
           None
     """
     bid = row[BIRD_COL]
-    bind = (bid, term["genotype"]["allelic_state"], bid, 2)
-    LOGGER.debug(WRITE["SESSION"], bind)
-    try:
-        CURSOR['bird'].execute(WRITE["SESSION"], bind)
-        session_id = CURSOR['bird'].lastrowid
+    # Write session
+    if ARG.SKIP:
         COUNT["session"] += 1
-    except Exception as err:
-        sql_error(err)
-    for col in range(first_marker, len(row)):
-        bind = (session_id, name[col], row[name[col]])
-        LOGGER.debug(WRITE["STATE"], bind)
+    else:
+        bind = (bid, term["genotype"]["allelic_state"], bid, 2)
+        LOGGER.debug(WRITE["SESSION"], bind)
         try:
-            CURSOR['bird'].execute(WRITE["STATE"], bind)
-            COUNT["state"] += 1
+            CURSOR['bird'].execute(WRITE["SESSION"], bind)
+            session_id = CURSOR['bird'].lastrowid
+            COUNT["session"] += 1
         except Exception as err:
             sql_error(err)
+    # Write allelic states
+    seq_count = 0
+    colrange = range(first_marker, len(row))
+    ptype = None
+    if PHENCOL:
+        ptype = compare_calls(row, name, colrange)
+    idstr = ""
+    for col in colrange:
+        idstr += row[name[col]]
+        if len(row[name[col]]) != 3:
+            LOGGER.warning("Invalid allele state %s", {row[name[col]]})
+        if row[name[col]] != "./.":
+            seq_count += 1
+        if ARG.SKIP:
+            COUNT["state"] += 1
+        else:
+            bind = (session_id, name[col], row[name[col]])
+            LOGGER.debug(WRITE["STATE"], bind)
+            try:
+                CURSOR['bird'].execute(WRITE["STATE"], bind)
+                COUNT["state"] += 1
+            except Exception as err:
+                sql_error(err)
+    if ARG.SKIP:
+        return None
+    # Write sequenced count
+    bind = (session_id, term["genotype"]["markers_sequenced"], seq_count)
+    LOGGER.debug(WRITE["SCORE"], bind)
+    try:
+        CURSOR['bird'].execute(WRITE["SCORE"], bind)
+        COUNT["score"] += 1
+    except Exception as err:
+        sql_error(err)
+    # Process phenotype
+    if ptype:
+        process_phenotype(row, term, ptype)
+    else:
+        key = hashlib.md5(idstr.encode()).hexdigest()
+        if key in PHENMAP:
+            process_phenotype(row, term, PHENMAP[key])
+    return ptype
 
 
 def perform_analysis(dfr):
@@ -311,11 +438,9 @@ def perform_analysis(dfr):
         Returns:
           None
     """
-    choices = ["Genotype", "Phenotype"]
-    quest = [inquirer.Checkbox('checklist',
-                               message='Select analyses to perform',
-                               choices=choices, default=choices)]
-    analyses = inquirer.prompt(quest)
+    newdfr = dfr.copy()
+    newdfr.insert(8, "IND_NAME", None)
+    newdfr.insert(10, ARG.PHENOTYPE.upper(), None)
     name = list(dfr.columns)
     #PLUG
     #if ARG.PHENOTYPE.upper() not in name:
@@ -324,65 +449,26 @@ def perform_analysis(dfr):
     first_marker = name.index("SEX") + 1 #PLUG
     LOGGER.info("Markers: %d", (len(name) - first_marker))
     term = get_terms()
-    for _, row in tqdm(dfr.iterrows(), total=dfr.shape[0]):
+    to_delete = []
+    for idx, row in tqdm(dfr.iterrows(), total=dfr.shape[0], desc="Analyzing"):
         COUNT["read"] += 1
         if "yw" in row[BIRD_COL]:
             row[BIRD_COL] = row[BIRD_COL].replace("yw", "ye")
         if row['SEX'] == ".":
             row['SEX'] = "U"
-        if not valid_bird(row):
+        birdname = valid_bird(row)
+        if not birdname:
+            to_delete.append(idx)
             continue
+        newdfr.at[idx, BIRD_COL] = row[BIRD_COL]
+        newdfr.at[idx, "IND_NAME"] = birdname
         COUNT["processed"] += 1
-        if "Phenotype" in analyses['checklist']:
-            process_phenotype(row, term)
-        if "Genotype" in analyses['checklist']:
-            process_genotype(row, term, name, first_marker)
-
-
-def perform_load(dfr):
-    """ Analyze dataframe
-        Keyword arguments:
-          dfr: dataframe
-        Returns:
-          None
-    """
-    bird = {}
-    try:
-        CURSOR['bird'].execute(READ["SPECIES"] % (ARG.SPECIES,))
-        species = CURSOR['bird'].fetchone()
-    except Exception as err:
-        sql_error(err)
-    # Sire/damsel check
-    for _, row in tqdm(dfr.iterrows(), total=dfr.shape[0], desc="Bird check"):
-        bird[row[BDAY_COL]] = 1
-    parent_err = {}
-    for _, row in tqdm(dfr.iterrows(), total=dfr.shape[0], desc="Sire/damsel check"):
-        if row[SIRE_COL] not in bird:
-            parent_err[row[SIRE_COL]] = 1
-        if row[DAMSEL_COL] not in bird:
-            parent_err[row[DAMSEL_COL]] = 1
-    for _, row in tqdm(dfr.iterrows(), total=dfr.shape[0], desc="Birds"):
-        COUNT["read"] += 1
-        field = row[BDAY_COL].split("/")
-        bday = "".join([field[2], field[0], field[1]])
-        bname = "_".join([bday, row[BIRD_COL]])
-        if bname in bird:
-            continue
-        if row[SIRE_COL] in parent_err or row[DAMSEL_COL] in parent_err:
-            LOGGER.error("Unknown sire/damsel for %s", row[BIRD_COL])
-            continue
-        loc = row[NEST_COL].split("_")[0]
-        if loc in ["inb", "inbrd", "0"]:
-            continue
-        sex = row[SEX_COL] if row[SEX_COL] in ["F", "M"] else ""
-        bind = (species["id"], bname, row[BIRD_COL], loc, sex)
-        LOGGER.debug(WRITE["BIRD"], species["id"], bname, row[BIRD_COL], loc, sex)
-        try:
-            CURSOR['bird'].execute(WRITE["BIRD"], bind)
-            bird[bname] = CURSOR["bird"].lastrowid
-            COUNT["birds"] += 1
-        except Exception as err:
-            sql_error(err)
+        ptype = process_genotype(row, term, name, first_marker)
+        if ptype:
+            newdfr.at[idx, ARG.PHENOTYPE.upper()] = ptype
+    if to_delete:
+        newdfr = newdfr.drop(labels=to_delete, axis=0)
+        newdfr.to_pickle("analyzed.pkl")
 
 
 def process_data_frame():
@@ -394,6 +480,8 @@ def process_data_frame():
           None
     """
     print(f"Processing {ARG.FILE} for phenotype {ARG.PHENOTYPE.lower()}")
+    if ARG.PHENFILE:
+        process_phenotype_file()
     LOGGER.info("Reading %s", ARG.FILE)
     if ARG.FILE.endswith(".pk") or ARG.FILE.endswith(".pkl"):
         dfr = pd.read_pickle(ARG.FILE)
@@ -406,34 +494,30 @@ def process_data_frame():
         dfr.to_pickle(newname)
     LOGGER.info("Dimensions: %dx%d", dfr.shape[0], dfr.shape[1])
     LOGGER.info("Birds: %d", len(dfr[BIRD_COL].unique()))
-    if ARG.MODE == "analysis":
-        perform_analysis(dfr)
-    else:
-        perform_load(dfr)
+    perform_analysis(dfr)
     if ARG.WRITE:
         CONN['bird'].commit()
-    print(f"Birds read:         {COUNT['read']}")
-    print(f"Birds not in db:    {COUNT['missing']}")
-    print(f"Sex mismatch:       {COUNT['sex']}")
-    print(f"Birds processed:    {COUNT['processed']}")
-    if ARG.MODE == "analysis":
-        print(f"Sessions written:   {COUNT['session']}")
-        print(f"Scores written:     {COUNT['score']}")
-        print(f"Invalid phenotypes: {COUNT['phenotype']}")
-        print(f"States written:     {COUNT['state']}")
-    else:
-        print(f"Birds written:      {COUNT['birds']}")
+    print(f"Birds read:          {COUNT['read']}")
+    print(f"Birds not in db:     {COUNT['missing']}")
+    print(f"Sex mismatch:        {COUNT['sex']}")
+    print(f"Birds processed:     {COUNT['processed']}")
+    print(f"Sessions written:    {COUNT['session']}")
+    print(f"Scores written:      {COUNT['score']}")
+    print(f"Invalid phenotypes:  {COUNT['phenotype']}")
+    print(f"States written:      {COUNT['state']}")
+    print(f"Sequence matches:    {COUNT['seq_match']}")
+    print(f"Sequence mismatches: {COUNT['seq_mismatch']}")
+    print(f"Close sequences:     {COUNT['seq_close']}")
 
 
 # *****************************************************************************
 
 if __name__ == '__main__':
-    PARSER = argparse.ArgumentParser(description="Load allelic states")
+    PARSER = argparse.ArgumentParser(description="Load allelic states and phenotypes")
     PARSER.add_argument('--file', dest='FILE', action='store',
                         help='File', required=True)
-    PARSER.add_argument('--mode', dest='MODE', action='store',
-                        default='analysis', choices=["analysis", "bird"],
-                        help='Mode [analysis]')
+    PARSER.add_argument('--phenfile', dest='PHENFILE', action='store',
+                        help='Phenotype file')
     PARSER.add_argument('--species', dest='SPECIES', action='store',
                         default='Bengalese finch', help='Species [Bengalese finch]')
     PARSER.add_argument('--phenotype', dest='PHENOTYPE', action='store',
@@ -441,6 +525,8 @@ if __name__ == '__main__':
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='dev', choices=["dev", "prod"],
                         help='Manifold')
+    PARSER.add_argument('--skip', dest='SKIP', action='store_true',
+                        default=False, help='Skip state processing')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Write to database')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
