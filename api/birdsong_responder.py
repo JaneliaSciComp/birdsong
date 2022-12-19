@@ -1868,7 +1868,8 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message=f"User {user} is not registered")
     try:
-        g.c.execute(READ['COMPSUMMARY'])
+        #g.c.execute(READ['COMPSUMMARY'])
+        g.c.execute("SELECT * FROM bird_comparison_summary_mv")
         rows = g.c.fetchall()
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
@@ -1880,7 +1881,7 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
     template = template.replace("th", "td")
     for row in rows:
         comprows += template % (row['comparison'], row['relationship'], row['cnt'],
-                                f"{row['mean']:.3}")
+                                f"{row['mean']:.3f}")
     comprows += "</tbody>"
     response = make_response(render_template('comparison.html', urlroot=request.url_root,
                                              face=face, dataset=app.config['DATASET'],
