@@ -26,7 +26,7 @@ from oauthlib.oauth2 import WebApplicationClient  # pylint: disable=E0401
 import birdsong_utilities
 from birdsong_utilities import *
 
-# pylint: disable=C0302, C0103, W0703
+# pylint: disable=C0302, C0103, W0703, R0903
 
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
@@ -1868,7 +1868,9 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message=f"User {user} is not registered")
     try:
-        #g.c.execute(READ['COMPSUMMARY'])
+        g.c.execute("SELECT COUNT(DISTINCT bird1_id) AS tot FROM bird_comparison")
+        total = g.c.fetchone()
+        total =int((total["tot"] / 2) * (total["tot"] + 1))
         g.c.execute("SELECT * FROM bird_comparison_summary_mv")
         rows = g.c.fetchall()
     except Exception as err:
@@ -1879,15 +1881,25 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
                + '</tr>'
     comprows = "<thead>" + (template % tuple(header)) + "</thead><tbody>"
     template = template.replace("th", "td")
+    comp = {}
     for row in rows:
+        if row['comparison'] not in comp:
+            comp[row['comparison']] = 0
+        comp[row['comparison']] += row['cnt']
         comprows += template % (row['comparison'], row['relationship'], row['cnt'],
                                 f"{row['mean']:.3f}")
     comprows += "</tbody>"
+    checkrows = "<thead><tr><th>Comparison</th><th>Count</th></tr><tbody>"
+    for term in sorted(comp):
+        color = "lime" if comp[term] == total else "goldenrod"
+        checkrows += f"<tr><td>{term}</td><td style='color:{color} !important'>" \
+                     + f"{comp[term]}</td></tr>"
+    checkrows += "</tbody>"
     response = make_response(render_template('comparison.html', urlroot=request.url_root,
                                              face=face, dataset=app.config['DATASET'],
                                              title="Comparison summary",
                                              navbar=generate_navbar('Comparisons', permissions),
-                                             comprows=comprows))
+                                             comprows=comprows, total=total, checkrows=checkrows))
     return response
 
 
