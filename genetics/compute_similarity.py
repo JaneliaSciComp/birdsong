@@ -1,5 +1,6 @@
 import argparse
 import os
+import signal
 import socket
 import sys
 import colorlog
@@ -220,6 +221,23 @@ def compare_birds(row1, row2, id1, session1, full1, phen1, results):
         CONN['bird'].commit()
 
 
+def show_stats():
+    print(f"Comparisons skipped:         {COUNT['skipped']}")
+    print(f"Potential comparisons:       {COUNT['potential']}")
+    print(f"Comparisons already present: {COUNT['present']}")
+    print(f"Comparisons removed:         {COUNT['removed']}")
+    print(f"Comparisons made:            {COUNT['comparisons']}")
+    print(f"allele_match_all:            {COUNT['allele_match_all']}")
+    print(f"allele_match_seq:            {COUNT['allele_match_seq']}")
+    print(f"{ARG.PHENOTYPE}:                {COUNT[ARG.PHENOTYPE]}")
+
+
+def sigterm_handler(signal, frame):
+    LOGGER.error("Caught SIGTERM")
+    show_stats()
+    sys.exit(0)
+
+
 def process_data_frame():
     """ Read pickle file in to a dataframe, then process it.
         Keyword arguments:
@@ -272,14 +290,7 @@ def process_data_frame():
     if len(results) > 1:
         with open("analysis_results.tsv", "w", encoding="ascii") as output:
             output.write("\n".join(results) + "\n")
-    print(f"Comparisons skipped:         {COUNT['skipped']}")
-    print(f"Potential comparisons:       {COUNT['potential']}")
-    print(f"Comparisons already present: {COUNT['present']}")
-    print(f"Comparisons removed:         {COUNT['removed']}")
-    print(f"Comparisons made:            {COUNT['comparisons']}")
-    print(f"allele_match_all:            {COUNT['allele_match_all']}")
-    print(f"allele_match_seq:            {COUNT['allele_match_seq']}")
-    print(f"{ARG.PHENOTYPE}:                {COUNT[ARG.PHENOTYPE]}")
+    show_stats()
 
 
     # *****************************************************************************
@@ -319,5 +330,6 @@ if __name__ == '__main__':
     LOGGER.addHandler(HANDLER)
 
     initialize_program()
+    signal.signal(signal.SIGTERM, sigterm_handler)
     process_data_frame()
     sys.exit(0)
