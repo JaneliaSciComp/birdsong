@@ -1,0 +1,5 @@
+MYSQL_ROOT_PASSWORD=root
+MYSQL_DATABASE=birdsong
+MYSQL_PORT=3306
+DATA_DIR=/Users/svirskasr/Documents/workspace/Git/birdsong/db
+TZ=America/New_York
