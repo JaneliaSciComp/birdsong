@@ -245,6 +245,18 @@ CREATE TABLE bird_comparison_summary_mv (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for naterialized view `bird_count_summary_mv`
+--
+DROP TABLE IF EXISTS bird_count_summary_mv;
+CREATE TABLE bird_count_summary_mv (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `comparison` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `cnt` int(10) unsigned,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=60 DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `bird_event`
 --
 DROP TABLE IF EXISTS `bird_event`;
