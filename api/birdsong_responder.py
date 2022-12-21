@@ -1889,10 +1889,20 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
         comprows += template % (row['comparison'], row['relationship'], row['cnt'],
                                 f"{row['mean']:.3f}")
     comprows += "</tbody>"
-    checkrows = "<thead><tr><th>Comparison</th><th>Count</th></tr><tbody>"
+    bcnt = {}
+    try:
+        g.c.execute("SELECT * FROM bird_count_summary_mv")
+        rows = g.c.fetchall()
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title="SQL error", message=sql_error(err))
+    for row in rows:
+        bcnt[row["comparison"]] = row["cnt"]
+    checkrows = "<thead><tr><th>Comparison</th><th>Birds</th><th>Count</th></tr><tbody>"
     for term in sorted(comp):
         color = "lime" if comp[term] == total else "goldenrod"
-        checkrows += f"<tr><td>{term}</td><td style='color:{color} !important'>" \
+        checkrows += f"<tr><td>{term}</td><td>{bcnt[term]}</td>" \
+                     + f"<td style='color:{color} !important'>" \
                      + f"{comp[term]}</td></tr>"
     checkrows += "</tbody>"
     response = make_response(render_template('comparison.html', urlroot=request.url_root,
