@@ -108,6 +108,7 @@ def db_connect(dbd):
 def make_comparison_key(arr):
     return "_".join([str(elem) for elem in arr])
 
+
 def initialize_program():
     """ Initialize the program
         Keyword arguments:
@@ -293,7 +294,7 @@ def process_data_frame():
     show_stats()
 
 
-    # *****************************************************************************
+# *****************************************************************************
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(description="Load allelic states")
