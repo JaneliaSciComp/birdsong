@@ -205,6 +205,9 @@ INSERT INTO user (name,first,last,janelia_id,email,organization,active) VALUES (
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='svirskasr'),(SELECT id FROM cv_term WHERE name="admin" AND cv_id=getCVId("permission","")));
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='svirskasr'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
+INSERT INTO user (name,first,last,janelia_id,email,organization,active) VALUES ('ericschuppe@gmail.com','Eric','Schuppe','schuppee','schuppe@hhmi.org','Dr. Michael Brainard Lab',1);
+INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='schuppe'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
+
 INSERT INTO user (name,first,last,janelia_id,email,organization,active) VALUES ('gowantervo@gmail.com','Gowan','Tervo','tervod','tervod@janelia.hhmi.org','Mechanistic Cognitive Neuroscience',1);
 INSERT INTO user_permission (user_id,permission_id) VALUES ((SELECT id FROM user WHERE janelia_id='tervod'),(SELECT id FROM cv_term WHERE name="edit" AND cv_id=getCVId("permission","")));
 
