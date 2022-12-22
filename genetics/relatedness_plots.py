@@ -1,5 +1,5 @@
 ''' relatedness_plots.py
-    Gegerate plots for bird comparisons
+    Generate plots for bird comparisons
 '''
 
 import argparse
