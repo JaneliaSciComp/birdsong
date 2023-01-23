@@ -1354,7 +1354,7 @@ def show_bird(bname): # pylint: disable=R0911
         return render_template("error.html", urlroot=request.url_root,
                                title="Unknown user", message=f"User {user} is not registered")
     try:
-        bird, nest = get_bird_nest_info(bname)
+        bird, _ = get_bird_nest_info(bname)
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
@@ -1374,8 +1374,8 @@ def show_bird(bname): # pylint: disable=R0911
         if set(['admin', 'manager']).intersection(permissions) or bird["user"] == user:
             try:
                 # PLUG
-                nestpull = generate_nest_pulldown(["breeding", "fostering", "tutoring"],
-                                                  from_nest=nest['id'])
+                #nestpull = generate_nest_pulldown(["breeding", "fostering", "tutoring"],
+                #                                  from_nest=nest['id'])
                 #nestpull = generate_nest_pulldown(["fostering", "tutoring"], from_nest=nest['id'])
                 #if "No nest" not in nestpull:
                 #    controls += "Move bird to new nest" + nestpull
