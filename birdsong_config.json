@@ -1,0 +1,15 @@
+{"database": {"birdsong": {"dev": {"host": "localhost",
+                                   "name": "birdsong",
+                                   "user": "root",
+                                   "password": "root",
+                                   "type": "mysql"
+                                  },
+                           "prod": {"host": "localhost",
+                                    "name": "birdsong",
+                                    "user": "root",
+                                    "password": "root",
+                                    "type": "mysql"
+                                   }
+                          }
+             }
+}
