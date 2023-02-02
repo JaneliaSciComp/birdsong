@@ -38,13 +38,18 @@ docker-compose -f docker-compose-prod.yml up db
 
 Take the following steps to start the system:
 ```
-cd /opt/flask/assignment-responder
+cd /opt/flask/birdsong
 docker-compose -f docker-compose-prod.yml down
 docker image ls
 docker image rm <image id from above for assignment-manager>
 docker volume rm assignment-manager_static_volume
 docker pull registry.int.janelia.org/flyem/assignment-manager
 docker-compose -f docker-compose-prod.yml up -d
+```
+
+If you need to open an ssh tunnel to use mysql from a remote machine:
+```
+ssh birdsong -L 12345:localhost:3306
 ```
 
 ## Development
