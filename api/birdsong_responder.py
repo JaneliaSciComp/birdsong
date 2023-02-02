@@ -21,6 +21,8 @@ import pymysql.cursors
 import pymysql.err
 import requests
 from oauthlib.oauth2 import WebApplicationClient  # pylint: disable=E0401
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 
 # pylint: disable=W0401, W0614
 import birdsong_utilities
@@ -48,6 +50,18 @@ class CustomJSONEncoder(JSONEncoder):
             return list(iterable)
         return JSONEncoder.default(self, o)
 
+class WsgiFlaskPrefixFix(ProxyFix):
+        def __init__(self, flaskapp):
+                super().__init__(flaskapp.wsgi_app, x_host=1, x_port=1, x_prefix=1)
+                self.flaskapp = flaskapp
+
+        def __call__(self, environ, start_response):
+                prefix = environ.get('HTTP_X_SCRIPT_NAME') or environ.get('HTTP_X_FORWARDED_PREFIX')
+                if prefix:
+                        self.flaskapp.config['APPLICATION_ROOT'] = environ['SCRIPT_NAME'] = prefix
+                        environ['PATH_INFO'] = environ['PATH_INFO'][len(prefix):]
+                return super().__call__(environ, start_response)
+
 
 __version__ = "0.0.3"
 app = Flask(__name__, template_folder="templates")
@@ -56,6 +70,7 @@ app.config.from_pyfile("config.cfg")
 # Override Flask's usual behavior of sorting keys (interferes with prioritization)
 app.config["JSON_SORT_KEYS"] = False
 CORS(app, supports_credentials=True)
+application = WsgiFlaskPrefixFix(app) #declared wsgi callable
 
 def define_views():
     ''' Populate app.config['VIEWS']
@@ -979,6 +994,7 @@ def generate_navbar(active, permissions=None):
 def login():
     ''' Initial login
     '''
+    print("/login")
     # Find out the Google login URL
     google_provider_cfg = get_google_provider_cfg()
     authorization_endpoint = google_provider_cfg["authorization_endpoint"]
@@ -986,9 +1002,12 @@ def login():
         print(f"Getting request URI from {authorization_endpoint}")
     # Use library to construct the request for Google login and provide
     # scopes that let you retrieve user's profile from Google
+    redirect_uri = request.base_url + "/callback"
+    if app.config["DEBUG"]:
+        print(f"redirect_uri is {redirect_uri}")
     request_uri = CLIENT.prepare_request_uri(
         authorization_endpoint,
-        redirect_uri=request.base_url + "/callback",
+        redirect_uri=redirect_uri,
         scope=["openid", "email", "profile"]
     )
     if app.config["DEBUG"]:
@@ -1004,10 +1023,12 @@ def login_callback():
     code = request.args.get("code")
     # Find out what URL to hit to get tokens that allow you to ask for
     # things on behalf of a user
+    if app.config["DEBUG"]:
+        print("In /login/callback, call get_google_provider_cfg()")
     google_provider_cfg = get_google_provider_cfg()
     token_endpoint = google_provider_cfg["token_endpoint"]
     if app.config["DEBUG"]:
-        print(f"Getting token URL from {token_endpoint}")
+        print(f"Getting token URL from {token_endpoint}, redirect_url={request.url}")
     # Get tokens using the client ID and secret
     token_url, headers, body = CLIENT.prepare_token_request(
         token_endpoint,
@@ -3668,5 +3689,4 @@ def get_cc():
 
 
 if __name__ == '__main__':
-    #app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
-    app.run(debug=True)
+    application.run(debug=True)

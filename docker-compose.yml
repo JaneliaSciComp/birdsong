@@ -3,7 +3,7 @@ services:
   nginx:
     image: nginx:1.15-alpine
     ports:
-      - 80:80
+            #- 80:80
       - 443:443
     restart: unless-stopped
     depends_on:
@@ -39,7 +39,7 @@ services:
         - ./api:/api
         - static_volume:/api/static
     environment:
-      - TZ=$TZ
+      - TZ=America/New_York
       - PYTHONUNBUFFERED=1
     networks:
         - birdsong-net
