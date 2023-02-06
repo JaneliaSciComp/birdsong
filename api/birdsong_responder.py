@@ -1304,8 +1304,8 @@ def logout():
                                title='You are not logged in',
                                message="You can't log out unless you're logged in")
     response = make_response(render_template('logout.html', urlroot=request.url_root))
-#    response.set_cookie(app.config['TOKEN'], '', domain='.janelia.org', expires=0)
-    response.set_cookie(app.config['TOKEN'], '', expires=0)
+    response.set_cookie(app.config['TOKEN'], '', domain='.janelia.org', expires=0)
+    #response.set_cookie(app.config['TOKEN'], '', expires=0)
     return response
 
 
@@ -3689,4 +3689,7 @@ def get_cc():
 
 
 if __name__ == '__main__':
-    application.run(debug=True)
+    if app.config["JSON_SORT_KEYS"] == 'dev':
+        app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
+    else:
+        application.run(debug=app.config["DEBUG"])

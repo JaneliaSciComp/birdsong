@@ -33,7 +33,7 @@ READ = {
     'LSUMMARY': "SELECT c.name,display_name,definition,c.id,COUNT(b.id) AS cnt,"
                 + "COUNT(DISTINCT n.id) AS ncnt FROM cv_term c LEFT OUTER JOIN bird b ON "
                 + "(b.location_id=c.id) LEFT OUTER JOIN nest n ON (n.location_id=c.id) "
-                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3",
+                + "WHERE cv_id=getCvId('location','') GROUP BY 1,2,3,4",
     'NSUMMARY': "SELECT * FROM nest_vw ORDER BY name DESC",
 }
 WRITE = {
@@ -427,7 +427,7 @@ def generate_bird_pulldown(sex, sid):
             if row[rname]:
                 exclude[row[rname]] = 1
     # Birds
-    sql = "SELECT id,name FROM bird where sex='%s' AND alive=1 ORDER BY 2"
+    sql = "SELECT id,name FROM bird where sex=%s AND alive=1 ORDER BY 2"
     try:
         g.c.execute(sql, (sex,))
         irows = g.c.fetchall()
@@ -940,7 +940,7 @@ def process_color_search(ipd):
           sql: SQL statement
           bind: bind tuple
     '''
-    sql = "SELECT * FROM %s_vw WHERE name ", (ipd['key_type'])
+    sql = f"SELECT * FROM {ipd['key_type']}_vw WHERE name "
     if ipd['uppercolor']:
         if ipd['lowercolor']:
             sql += "REGEXP %s"
