@@ -3689,7 +3689,7 @@ def get_cc():
 
 
 if __name__ == '__main__':
-    if app.config["JSON_SORT_KEYS"] == 'dev':
+    if app.config["RUN_MODE"] == 'dev':
         app.run(ssl_context="adhoc", debug=app.config["DEBUG"])
     else:
         application.run(debug=app.config["DEBUG"])
