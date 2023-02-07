@@ -729,7 +729,7 @@ def generate_which_pulldown():
           Birds to show:
         </div>
         <div class="flexcol">
-          <select id="which" onclick="get_birds();">
+          <select id="which" onchange="get_birds();">
             <option value="mine" selected>Claimed by me</option>
             <option value="eligible">Claimed by me or unclaimed</option>
             <option value="unclaimed">Unclaimed birds only</option>
