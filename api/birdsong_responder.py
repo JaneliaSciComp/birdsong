@@ -63,7 +63,7 @@ class WsgiFlaskPrefixFix(ProxyFix):
                 return super().__call__(environ, start_response)
 
 
-__version__ = "0.0.3"
+__version__ = "0.1.0"
 app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
@@ -913,66 +913,59 @@ def generate_navbar(active, permissions=None):
       <div class="collapse navbar-collapse" id="navbarSupportedContent">
         <ul class="navbar-nav mr-auto">
     '''
-    headings = ['Birds', 'Clutches', 'Nests', 'Searches', 'Locations', 'Comparisons', 'Users']
+    headings = ['Birds', 'Clutches', 'Nests', 'Reports', 'Searches', 'Locations', 'Comparisons', 'Users']
     if "admin" in permissions:
         headings.append("Admin")
     for heading in headings:
         basic = '<li class="nav-item active">' if heading == active else '<li class="nav-item">'
+        menuhead = '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
+                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
+                   + f"aria-expanded=\"false\">{heading}</a><div class=\"dropdown-menu\" "\
+                   + 'aria-labelledby="navbarDropdown">'
         if heading == 'Birds' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Birds</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/birdlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newbird">Add</a>'
             nav += '</div></li>'
         elif heading == 'Clutches' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Clutches</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/clutchlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newclutch">Add</a>'
             nav += '</div></li>'
         elif heading == 'Nests' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Nests</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/nestlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newnest">Add</a>'
+            nav += '</div></li>'
+        elif heading == 'Reports' and set(['admin', 'manager']).intersection(permissions):
+            nav += '<li class="nav-item dropdown active">' \
+                if heading == active else '<li class="nav-item">'
+            nav += menuhead
+            nav += '<a class="dropdown-item" href="/report/bird_user">Birds by user</a>' \
+                   + '<a class="dropdown-item" href="/report/bird_alive">Living/dead birds</a>'
             nav += '</div></li>'
         elif heading == 'Comparisons':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Comparisons</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/comparisons">Show</a>'
             nav += '</div></li>'
         elif heading == 'Users':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Users</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/userlist">Show</a>'
             nav += '</div></li>'
         elif heading == 'Admin':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item">'
-            nav += '<a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" ' \
-                   + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
-                   + 'aria-expanded="false">Admin</a><div class="dropdown-menu" '\
-                   + 'aria-labelledby="navbarDropdown">'
+            nav += menuhead
             nav += '<a class="dropdown-item" href="/fulldbstats">DB statistics</a>'
             nav += '</div></li>'
         else:
@@ -1696,6 +1689,50 @@ def new_nest():
     except Exception as err:
         return render_template("error.html", urlroot=request.url_root,
                                title="SQL error", message=sql_error(err))
+
+
+@app.route('/report/<string:report>', methods=['GET'])
+def get_report(report="bird_user"):
+    ''' Show a report
+    '''
+    user, face, permissions = get_user_profile()
+    if not user:
+        return redirect(app.config['AUTH_URL'] + "?redirect=" + request.url_root)
+    if not validate_user(user):
+        return render_template("error.html", urlroot=request.url_root,
+                               title="Unknown user", message=f"User {user} is not registered")
+    title = {"bird_user": "Birds by user",
+             "bird_alive": "Living/dead birds"
+    }
+    sql = {"bird_user": "SELECT username AS val,COUNT(1) AS num FROM bird_vw WHERE username IS NOT NULL GROUP BY 1 ORDER BY 1",
+           "bird_alive": "SELECT IFNULL(NULLIF('Alive', alive), 'Dead') AS val,COUNT(1) AS num FROM bird_vw GROUP BY 1 ORDER BY 1"
+          }
+    try:
+        g.c.execute(sql[report])
+        rows = g.c.fetchall()
+    except Exception as err:
+        raise InvalidUsage(sql_error(err), 500) from err
+    html = '''
+        <table id="report" class="tablesorter standard">
+        <thead>
+        <tr><th>
+    '''
+    if report == 'bird_user':
+        header = ['User name']
+    elif report == 'bird_alive':
+        header = ['State']
+    header.append('Count')
+    html += '</th><th>'.join(header) + '</th></tr></thead><tbody>'
+    template = '<tr>' + ''.join("<td>%s</td>")*(len(header)) + '</tr>'
+    for row in rows:
+        bind = (row['val'], row['num'])
+        html += template % bind
+    html += "</tbody></table>"
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             face=face, dataset=app.config['DATASET'],
+                                             navbar=generate_navbar('Reports', permissions),
+                                             title=title[report], html=html))
+    return response
 
 
 @app.route('/searchlist')
