@@ -922,49 +922,49 @@ def generate_navbar(active, permissions=None):
                    + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
                    + f"aria-expanded=\"false\">{heading}</a><div class=\"dropdown-menu\" "\
                    + 'aria-labelledby="navbarDropdown">'
-        if heading == 'Birds' and set(['admin', 'manager']).intersection(permissions):
+        if heading == 'Birds' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/birdlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newbird">Add</a>'
             nav += '</div></li>'
         elif heading == 'Clutches' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/clutchlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newclutch">Add</a>'
             nav += '</div></li>'
         elif heading == 'Nests' and set(['admin', 'edit', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/nestlist">Show</a>' \
                    + '<a class="dropdown-item" href="/newnest">Add</a>'
             nav += '</div></li>'
         elif heading == 'Reports' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/report/bird_user">Birds by user</a>' \
                    + '<a class="dropdown-item" href="/report/bird_alive">Living/dead birds</a>'
             nav += '</div></li>'
         elif heading == 'Comparisons':
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/comparisons">Show</a>'
             nav += '</div></li>'
         elif heading == 'Users':
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/userlist">Show</a>'
             nav += '</div></li>'
         elif heading == 'Admin':
             nav += '<li class="nav-item dropdown active">' \
-                if heading == active else '<li class="nav-item">'
+                if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
             nav += '<a class="dropdown-item" href="/fulldbstats">DB statistics</a>'
             nav += '</div></li>'
