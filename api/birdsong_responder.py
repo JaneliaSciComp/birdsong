@@ -922,26 +922,29 @@ def generate_navbar(active, permissions=None):
                    + 'role="button" data-toggle="dropdown" aria-haspopup="true" ' \
                    + f"aria-expanded=\"false\">{heading}</a><div class=\"dropdown-menu\" "\
                    + 'aria-labelledby="navbarDropdown">'
-        if heading == 'Birds' and set(['admin', 'edit', 'manager']).intersection(permissions):
+        if heading == 'Birds':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
-            nav += '<a class="dropdown-item" href="/birdlist">Show</a>' \
-                   + '<a class="dropdown-item" href="/newbird">Add</a>'
+            nav += '<a class="dropdown-item" href="/birdlist">Show</a>'
+            if set(['admin', 'edit', 'manager']).intersection(permissions):
+                nav += '<a class="dropdown-item" href="/newbird">Add</a>'
             nav += '</div></li>'
-        elif heading == 'Clutches' and set(['admin', 'edit', 'manager']).intersection(permissions):
+        elif heading == 'Clutches':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
-            nav += '<a class="dropdown-item" href="/clutchlist">Show</a>' \
-                   + '<a class="dropdown-item" href="/newclutch">Add</a>'
+            nav += '<a class="dropdown-item" href="/clutchlist">Show</a>'
+            if set(['admin', 'edit', 'manager']).intersection(permissions):
+                nav += '<a class="dropdown-item" href="/newclutch">Add</a>'
             nav += '</div></li>'
-        elif heading == 'Nests' and set(['admin', 'edit', 'manager']).intersection(permissions):
+        elif heading == 'Nests':
             nav += '<li class="nav-item dropdown active">' \
                 if heading == active else '<li class="nav-item dropdown">'
             nav += menuhead
-            nav += '<a class="dropdown-item" href="/nestlist">Show</a>' \
-                   + '<a class="dropdown-item" href="/newnest">Add</a>'
+            nav += '<a class="dropdown-item" href="/nestlist">Show</a>'
+            if set(['admin', 'edit', 'manager']).intersection(permissions):
+                nav += '<a class="dropdown-item" href="/newnest">Add</a>'
             nav += '</div></li>'
         elif heading == 'Reports' and set(['admin', 'manager']).intersection(permissions):
             nav += '<li class="nav-item dropdown active">' \
