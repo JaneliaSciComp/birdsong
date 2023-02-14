@@ -1931,7 +1931,8 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
     try:
         g.c.execute("SELECT COUNT(DISTINCT bird1_id) AS tot FROM bird_comparison")
         total = g.c.fetchone()
-        total =int((total["tot"] / 2) * (total["tot"] + 1))
+        birdcount = total["tot"]
+        total = int((total["tot"] / 2) * (total["tot"] + 1))
         g.c.execute("SELECT * FROM bird_comparison_summary_mv")
         rows = g.c.fetchall()
     except Exception as err:
@@ -1968,7 +1969,7 @@ def show_comparisons(): # pylint: disable=R0914,R0912,R0915
     checkrows += "</tbody>"
     response = make_response(render_template('comparison.html', urlroot=request.url_root,
                                              face=face, dataset=app.config['DATASET'],
-                                             title="Comparison summary",
+                                             title=f"Comparison summary for {birdcount} birds",
                                              navbar=generate_navbar('Comparisons', permissions),
                                              comprows=comprows, total=total, checkrows=checkrows))
     return response
