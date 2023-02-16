@@ -192,7 +192,7 @@ def initialize_result():
                 raise InvalidUsage(sql_error(err), 500) from err
             app.config["AUTHORIZED"][token] = authuser
         result["rest"]["user"] = authuser
-        app.config["USERS"][authuser] = app.config["USERS"].get(authuser, 0) + 1
+        app.config["APIUSERS"][authuser] = app.config["API_USERS"].get(authuser, 0) + 1
     elif request.method in ["DELETE", "POST"] or request.endpoint in app.config["REQUIRE_AUTH"]:
         raise InvalidUsage('You must authorize to use this endpoint', 401)
     if app.config["LAST_TRANSACTION"] and time() - app.config["LAST_TRANSACTION"] \
@@ -883,6 +883,13 @@ def get_user_profile():
     user = resp["email"]
     face = f"<img class='user_image' src='{resp['picture']}' alt='{user}'>"
     permissions = check_permission(user)
+    print(resp)
+    if user in app.config["USERS"]:
+        app.config["UI_USERS"][app.config["USERS"][user]] += 1
+    else:
+        urec = get_user_by_name(user)
+        app.config["USERS"][user] = f"{urec['last']}, {urec['first']}"
+        app.config["UI_USERS"][app.config["USERS"][user]] = 1
     return user, face, permissions
 
 
@@ -2072,7 +2079,8 @@ def stats():
                            "python": sys.version,
                            "pid": os.getpid(),
                            "endpoint_counts": app.config['ENDPOINTS'],
-                           "user_counts": app.config['USERS'],
+                           "api_user_counts": app.config['API_USERS'],
+                           "ui_user_counts": app.config['UI_USERS'],
                            "time_since_last_transaction": tbt,
                            "database_connection": db_connection}
         if None in result['stats']['endpoint_counts']:
