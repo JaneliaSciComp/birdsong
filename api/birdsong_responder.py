@@ -192,11 +192,12 @@ def initialize_result():
                 raise InvalidUsage(sql_error(err), 500) from err
             app.config["AUTHORIZED"][token] = authuser
         result["rest"]["user"] = authuser
-        if authuser in app.config["USERS"]:
-            app.config["API_USERS"][app.config["USERS"][authuser]] += 1
-        else:
+        if authuser not in app.config["USERS"]:
             urec = get_user_by_name(authuser)
             app.config["USERS"][authuser] = f"{urec['last']}, {urec['first']}"
+        if app.config["USERS"][authuser] in app.config["API_USERS"]:
+            app.config["API_USERS"][app.config["USERS"][authuser]] += 1
+        else:
             app.config["API_USERS"][app.config["USERS"][authuser]] = 1
     elif request.method in ["DELETE", "POST"] or request.endpoint in app.config["REQUIRE_AUTH"]:
         raise InvalidUsage('You must authorize to use this endpoint', 401)
@@ -887,12 +888,13 @@ def get_user_profile():
     resp = decode_token(token)
     user = resp["email"]
     face = f"<img class='user_image' src='{resp['picture']}' alt='{user}'>"
-    permissions = check_permission(user)
-    if user in app.config["USERS"]:
-        app.config["UI_USERS"][app.config["USERS"][user]] += 1
-    else:
+    permissions = check_permission(user)    
+    if user not in app.config["USERS"]:
         urec = get_user_by_name(user)
         app.config["USERS"][user] = f"{urec['last']}, {urec['first']}"
+    if app.config["USERS"][user] in app.config["UI_USERS"]:
+        app.config["UI_USERS"][app.config["USERS"][user]] += 1
+    else:
         app.config["UI_USERS"][app.config["USERS"][user]] = 1
     return user, face, permissions
 
