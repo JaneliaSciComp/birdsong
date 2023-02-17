@@ -192,7 +192,7 @@ def initialize_result():
                 raise InvalidUsage(sql_error(err), 500) from err
             app.config["AUTHORIZED"][token] = authuser
         result["rest"]["user"] = authuser
-        app.config["APIUSERS"][authuser] = app.config["API_USERS"].get(authuser, 0) + 1
+        app.config["API_USERS"][authuser] = app.config["API_USERS"].get(authuser, 0) + 1
     elif request.method in ["DELETE", "POST"] or request.endpoint in app.config["REQUIRE_AUTH"]:
         raise InvalidUsage('You must authorize to use this endpoint', 401)
     if app.config["LAST_TRANSACTION"] and time() - app.config["LAST_TRANSACTION"] \
