@@ -51,16 +51,16 @@ class CustomJSONEncoder(JSONEncoder):
         return JSONEncoder.default(self, o)
 
 class WsgiFlaskPrefixFix(ProxyFix):
-        def __init__(self, flaskapp):
-                super().__init__(flaskapp.wsgi_app, x_host=1, x_port=1, x_prefix=1)
-                self.flaskapp = flaskapp
+    def __init__(self, flaskapp):
+        super().__init__(flaskapp.wsgi_app, x_host=1, x_port=1, x_prefix=1)
+        self.flaskapp = flaskapp
 
-        def __call__(self, environ, start_response):
-                prefix = environ.get('HTTP_X_SCRIPT_NAME') or environ.get('HTTP_X_FORWARDED_PREFIX')
-                if prefix:
-                        self.flaskapp.config['APPLICATION_ROOT'] = environ['SCRIPT_NAME'] = prefix
-                        environ['PATH_INFO'] = environ['PATH_INFO'][len(prefix):]
-                return super().__call__(environ, start_response)
+    def __call__(self, environ, start_response):
+        prefix = environ.get('HTTP_X_SCRIPT_NAME') or environ.get('HTTP_X_FORWARDED_PREFIX')
+        if prefix:
+            self.flaskapp.config['APPLICATION_ROOT'] = environ['SCRIPT_NAME'] = prefix
+            environ['PATH_INFO'] = environ['PATH_INFO'][len(prefix):]
+        return super().__call__(environ, start_response)
 
 
 __version__ = "0.1.0"
@@ -192,7 +192,12 @@ def initialize_result():
                 raise InvalidUsage(sql_error(err), 500) from err
             app.config["AUTHORIZED"][token] = authuser
         result["rest"]["user"] = authuser
-        app.config["API_USERS"][authuser] = app.config["API_USERS"].get(authuser, 0) + 1
+        if authuser in app.config["USERS"]:
+            app.config["API_USERS"][app.config["USERS"][authuser]] += 1
+        else:
+            urec = get_user_by_name(authuser)
+            app.config["USERS"][authuser] = f"{urec['last']}, {urec['first']}"
+            app.config["API_USERS"][app.config["USERS"][authuser]] = 1
     elif request.method in ["DELETE", "POST"] or request.endpoint in app.config["REQUIRE_AUTH"]:
         raise InvalidUsage('You must authorize to use this endpoint', 401)
     if app.config["LAST_TRANSACTION"] and time() - app.config["LAST_TRANSACTION"] \
@@ -210,7 +215,7 @@ def generate_response(result):
         Returns:
           JSON response
     '''
-    result["rest"]["elapsed_time"] = str(timedelta(seconds=(time() - START_TIME)))
+    result["rest"]["elapsed_time"] = str(timedelta(seconds=time() - START_TIME))
     return jsonify(**result)
 
 
@@ -883,7 +888,6 @@ def get_user_profile():
     user = resp["email"]
     face = f"<img class='user_image' src='{resp['picture']}' alt='{user}'>"
     permissions = check_permission(user)
-    print(resp)
     if user in app.config["USERS"]:
         app.config["UI_USERS"][app.config["USERS"][user]] += 1
     else:
@@ -920,7 +924,8 @@ def generate_navbar(active, permissions=None):
       <div class="collapse navbar-collapse" id="navbarSupportedContent">
         <ul class="navbar-nav mr-auto">
     '''
-    headings = ['Birds', 'Clutches', 'Nests', 'Reports', 'Searches', 'Locations', 'Comparisons', 'Users']
+    headings = ['Birds', 'Clutches', 'Nests', 'Reports', 'Searches', 'Locations',
+                'Comparisons', 'Users']
     if "admin" in permissions:
         headings.append("Admin")
     for heading in headings:
@@ -1714,8 +1719,10 @@ def get_report(report="bird_user"):
     title = {"bird_user": "Birds by user",
              "bird_alive": "Living/dead birds"
     }
-    sql = {"bird_user": "SELECT username AS val,COUNT(1) AS num FROM bird_vw WHERE username IS NOT NULL GROUP BY 1 ORDER BY 1",
-           "bird_alive": "SELECT IFNULL(NULLIF('Alive', alive), 'Dead') AS val,COUNT(1) AS num FROM bird_vw GROUP BY 1 ORDER BY 1"
+    sql = {"bird_user": "SELECT username AS val,COUNT(1) AS num FROM bird_vw WHERE "
+                        + "username IS NOT NULL GROUP BY 1 ORDER BY 1",
+           "bird_alive": "SELECT IFNULL(NULLIF('Alive', alive), 'Dead') AS val,COUNT(1) AS num "
+                         + "FROM bird_vw GROUP BY 1 ORDER BY 1"
           }
     try:
         g.c.execute(sql[report])
@@ -2166,7 +2173,7 @@ def get_processlist_host_info(): # pragma: no cover
     hostname = platform.node() + '%'
     try:
         sql = "SELECT * FROM information_schema.processlist WHERE host LIKE %s"
-        bind = (hostname)
+        bind = hostname
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
         result['rest']['row_count'] = len(rows)
@@ -2627,7 +2634,7 @@ def bird_nest(bird_id, nest_id):
         raise InvalidUsage("You don't have permission to change a bird's nest")
     result["rest"]["row_count"] = 0
     try:
-        bind = (nest_id)
+        bind = tuple(nest_id)
         g.c.execute("SELECT location_id FROM bird WHERE nest_id=%s LIMIT 1", bind)
         row = g.c.fetchone()
     except Exception as err:
@@ -2681,7 +2688,7 @@ def bird_event(bird_id):
     if ipd["terminal"]:
         sql = "UPDATE bird SET alive=0,death_date=CURRENT_TIMESTAMP(),user_id=NULL WHERE id=%s"
         try:
-            bind = (bird_id)
+            bind = tuple(bird_id)
             g.c.execute(sql, bind)
             result["rest"]["row_count"] += g.c.rowcount
             if ipd["event"] != "died":
@@ -2692,7 +2699,7 @@ def bird_event(bird_id):
     if ipd["event"] == "unclaimed":
         sql = "UPDATE bird SET user_id=NULL WHERE id=%s"
         try:
-            bind = (bird_id)
+            bind = tuple(bird_id)
             g.c.execute(sql, bind)
             result["rest"]["row_count"] += g.c.rowcount
         except Exception as err:
@@ -2857,7 +2864,7 @@ def alive_bird(bird_id):
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET alive=1,death_date=NULL WHERE id=%s"
     try:
-        bind = (bird_id)
+        bind = tuple(bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
@@ -2917,7 +2924,7 @@ def dead_bird(bird_id):
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET alive=0,death_date=CURRENT_TIMESTAMP(),user_id=NULL WHERE id=%s"
     try:
-        bind = (bird_id)
+        bind = tuple(bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
         log_bird_event(bird_id, status="died", user=result['rest']['user'], location_id=None,
@@ -2950,7 +2957,7 @@ def unclaim_bird(bird_id):
     result["rest"]["row_count"] = 0
     sql = "UPDATE bird SET user_id=NULL WHERE id=%s"
     try:
-        bind = (bird_id)
+        bind = tuple(bird_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
         log_bird_event(bird_id, status="unclaimed", user=result['rest']['user'], location_id=None)
@@ -3160,7 +3167,7 @@ def nest_location(nest_id, location_id):
         raise InvalidUsage(sql_error(err), 500) from err
     sql = "SELECT id FROM bird WHERE nest_id=%s"
     try:
-        bind = (nest_id)
+        bind = tuple(nest_id)
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
         for row in rows:
@@ -3201,7 +3208,7 @@ def nest_tutor(nest_id):
     sql = "SELECT id FROM bird WHERE nest_id=%s and sex='M' AND alive=1 AND id NOT IN " \
           + "(SELECT bird_id FROM bird_tutor) ORDER BY 1"
     try:
-        bind = (nest_id)
+        bind = tuple(nest_id)
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
     except Exception as err:
@@ -3242,7 +3249,7 @@ def nest_nest(nest_id, new_nest_id):
     result["rest"]["row_count"] = 0
     # Get new location
     try:
-        bind = (new_nest_id)
+        bind = tuple(new_nest_id)
         g.c.execute("SELECT location_id FROM bird WHERE nest_id=%s LIMIT 1", bind)
         row = g.c.fetchone()
     except Exception as err:
@@ -3251,7 +3258,7 @@ def nest_nest(nest_id, new_nest_id):
     # Get all birds in current nest
     sql = "SELECT id FROM bird WHERE nest_id=%s"
     try:
-        bind = (nest_id)
+        bind = tuple(nest_id)
         g.c.execute(sql, bind)
         rows = g.c.fetchall()
     except Exception as err:
@@ -3272,7 +3279,7 @@ def nest_nest(nest_id, new_nest_id):
     sql = "UPDATE nest SET sire_id=NULL,damsel_id=NULL,female1_id=NULL,female2_id=NULL," \
           + "female3_id=NULL,breeding=0,fostering=0,tutoring=0,active=0 where id=%s"
     try:
-        bind = (nest_id)
+        bind = tuple(nest_id)
         g.c.execute(sql, bind)
         result["rest"]["row_count"] += g.c.rowcount
     except Exception as err:
