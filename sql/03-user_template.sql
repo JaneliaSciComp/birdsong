@@ -3,11 +3,11 @@
 -- ============= --
 -- CREATE USER 'birdAdmin'@'%' IDENTIFIED WITH mysql_native_password BY 'birdAdmin'; --
 DROP USER IF EXISTS birdAdmin;
-CREATE USER 'birdAdmin'@'%' IDENTIFIED BY '313bldsaf560';
+CREATE USER 'birdAdmin'@'%' IDENTIFIED BY '**********';
 DROP USER IF EXISTS birdApp;
-CREATE USER 'birdApp'@'%' IDENTIFIED BY 's0ciety_mbl_23';
+CREATE USER 'birdApp'@'%' IDENTIFIED BY '**********';
 DROP USER IF EXISTS birdRead;
-CREATE USER 'birdRead'@'%' IDENTIFIED BY 's0cietyRead';
+CREATE USER 'birdRead'@'%' IDENTIFIED BY '**********';
 
 -- ====================== --
 -- Apply User Privileges
