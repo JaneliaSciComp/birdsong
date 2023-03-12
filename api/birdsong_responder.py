@@ -1279,14 +1279,17 @@ def fulldbstats():
     if "admin" not in permissions:
         return redirect("/profile")
     try:
+        g.c.execute("SELECT engine FROM information_schema.engines WHERE transactions='YES'")
+        engine = g.c.fetchone()
+        msg = f"Engine: {engine['engine']}<br>"
         g.c.execute("SHOW TABLE STATUS LIKE 'bird'")
         free = g.c.fetchone()
         g.c.execute("SELECT SUM(data_length + index_length) AS size FROM " \
                     + "information_schema.tables WHERE table_schema='birdsong'")
         size = g.c.fetchone()
         dbspace = free["Data_free"] + size["size"]
-        msg = f"Used: {humansize(float(size['size']))} ({size['size']/dbspace*100:.2f}%)<br>" \
-              + f"Free: {humansize(float(free['Data_free']))} " \
+        msg += f"Used space: {humansize(float(size['size']))} ({size['size']/dbspace*100:.2f}%)<br>" \
+              + f"Free space: {humansize(float(free['Data_free']))} " \
               + f"({free['Data_free']/dbspace*100:.2f}%)"
         g.c.execute("SELECT TABLE_NAME,TABLE_ROWS,DATA_LENGTH FROM INFORMATION_SCHEMA.TABLES " \
                     + "WHERE TABLE_SCHEMA='birdsong' AND TABLE_TYPE='BASE TABLE'")
